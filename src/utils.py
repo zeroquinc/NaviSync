@@ -8,17 +8,29 @@ def normalize(s):
     return s.strip().lower() if s else ""
 
 def first_artist(artist):
-    """Extract the first artist from a collaboration string, respecting whitelist."""
+    """Extract the primary artist from a collaboration string."""
     if not artist:
         return ""
     artist_clean = artist.strip()
-    for whitelisted in FIRST_ARTIST_WHITELIST:
-        if artist_clean.lower() == whitelisted.lower():
-            return whitelisted
+
+    # Short-circuit: if not applying first-artist-only logic, return as-is
     if not SCROBBLED_FIRSTARTISTONLY:
         return artist_clean
+
+    # Exact or prefix match against whitelist (case-insensitive)
+    artist_lower = artist_clean.lower()
+    for whitelisted in FIRST_ARTIST_WHITELIST:
+        wl = (whitelisted or "").strip()
+        if not wl:
+            continue
+        wl_lower = wl.lower()
+        if artist_lower == wl_lower or artist_lower.startswith(wl_lower):
+            return wl  # preserve canonical casing from whitelist
+
+    # Fallback: split on common separators (feat., &, ',', '/', '-', with, etc.)
     sep_pattern = re.compile(
-        r"\s+(feat\.?|ft\.?|featuring|&|;|,|/|-|mit|met|with)\s+", flags=re.IGNORECASE
+        r"\s+(feat\.?|ft\.?|featuring|&|;|,|/|-|mit|met|with)\s+",
+        flags=re.IGNORECASE,
     )
     return sep_pattern.split(artist_clean)[0].strip()
 
