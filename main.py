@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 from src.config import NAVIDROME_DB_PATH, MISSING_SCROBBLES, MISSING_LOVED, CACHE_DB_PATH, PLAYCOUNT_CONFLICT_RESOLUTION
 from src.db import get_navidrome_user_id, get_all_tracks, get_annotation_playcount_starred, update_annotation
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks
-from src.aggregation import aggregate_scrobbles, group_missing_by_artist_album
-from src.utils import make_key
+from src.utils import make_key, aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
 
 def main():

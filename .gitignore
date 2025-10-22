@@ -166,6 +166,7 @@ cython_debug/
 *.yaml
 *.yml
 *.json
+json/
 
 # Cache database
 cache/
