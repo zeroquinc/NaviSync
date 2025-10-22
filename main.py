@@ -1,7 +1,7 @@
 import sqlite3
 import json
 from datetime import datetime, timezone
-from src.config import NAVIDROME_DB_PATH, MISSING_SCROBBLES, MISSING_LOVED, CACHE_DB_PATH
+from src.config import NAVIDROME_DB_PATH, MISSING_SCROBBLES, MISSING_LOVED, CACHE_DB_PATH, PLAYCOUNT_CONFLICT_RESOLUTION
 from src.db import get_navidrome_user_id, get_all_tracks, get_annotation_playcount_starred, update_annotation
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks
 from src.aggregation import aggregate_scrobbles, group_missing_by_artist_album
@@ -130,6 +130,17 @@ def main():
 
     if differences:
         print(f"\nTracks with possible updates: {len(differences)}\n")
+        
+        # Show conflict resolution mode
+        conflict_mode_desc = {
+            "ask": "interactive (will prompt for each conflict)",
+            "navidrome": "always keep Navidrome when higher",
+            "lastfm": "always use Last.fm",
+            "higher": "always use higher count",
+            "increment": "add Last.fm count to Navidrome count"
+        }
+        print(f"📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}\n")
+        
         for d in differences:
             diff_str = f"{d['lastfm'] - d['navidrome']:+d}"
             print(f"  - {d['artist']} - {d['title']}")
@@ -146,20 +157,48 @@ def main():
                 lastfm = d['lastfm']
                 artist, title = d['artist'], d['title']
 
-                # Decide which playcount to use
-                if lastfm > nav:
-                    new_count = lastfm  # Auto update upwards
+                # Decide which playcount to use based on configuration
+                if PLAYCOUNT_CONFLICT_RESOLUTION == "increment":
+                    # Always increment: add Last.fm count to Navidrome count
+                    new_count = nav + lastfm
+                    updated_playcounts += 1
+                    if nav != lastfm:  # Only count as conflict if they're different
+                        conflicts_resolved += 1
+                elif lastfm > nav:
+                    # Last.fm count is higher - always use it (except in increment mode)
+                    new_count = lastfm
                     updated_playcounts += 1
                 elif nav > lastfm:
-                    print(f"\n🎵 {artist} - {title}")
-                    print(f"   Navidrome: {nav} | Last.fm: {lastfm}")
-                    choice = input("   → Navidrome playcount is higher. Keep Navidrome (N) or use Last.fm (L)? [N/L, default=N]: ").strip().lower()
-                    new_count = nav if choice in ('', 'n') else lastfm
-                    conflicts_resolved += 1
+                    # Navidrome count is higher - use conflict resolution strategy
+                    if PLAYCOUNT_CONFLICT_RESOLUTION == "ask":
+                        # Interactive mode: ask user
+                        print(f"\n🎵 {artist} - {title}")
+                        print(f"   Navidrome: {nav} | Last.fm: {lastfm}")
+                        choice = input("   → Navidrome playcount is higher. Keep Navidrome (N) or use Last.fm (L)? [N/L, default=N]: ").strip().lower()
+                        new_count = nav if choice in ('', 'n') else lastfm
+                        conflicts_resolved += 1
+                    elif PLAYCOUNT_CONFLICT_RESOLUTION == "navidrome":
+                        # Always keep Navidrome when it's higher
+                        new_count = nav
+                        conflicts_resolved += 1
+                    elif PLAYCOUNT_CONFLICT_RESOLUTION == "lastfm":
+                        # Always use Last.fm (overwrite Navidrome)
+                        new_count = lastfm
+                        conflicts_resolved += 1
+                        updated_playcounts += 1
+                    elif PLAYCOUNT_CONFLICT_RESOLUTION == "higher":
+                        # Use higher count (which is Navidrome in this branch)
+                        new_count = nav
+                        conflicts_resolved += 1
+                    else:
+                        # Fallback to Navidrome if somehow invalid
+                        new_count = nav
+                    
                     if new_count != nav:
                         updated_playcounts += 1
                 else:
-                    new_count = nav  # Equal — no change
+                    # Counts are equal - no change needed (unless increment mode handled it above)
+                    new_count = nav
 
                 # Check if loved status will be updated
                 if d['loved'] and not d['nav_starred']:
@@ -170,11 +209,17 @@ def main():
                 # Mark this track as synced in cache
                 cache.mark_scrobbles_synced(artist, title)
 
-                # Log concise summary (but not for every track to reduce clutter)
+                # Log concise summary
                 if new_count != nav:
-                    print(f"✅ Updated playcount: {artist} - {title} ({nav} → {new_count})")
+                    if PLAYCOUNT_CONFLICT_RESOLUTION == "increment":
+                        print(f"➕ Incremented playcount: {artist} - {title} ({nav} + {lastfm} = {new_count})")
+                    else:
+                        print(f"✅ Updated playcount: {artist} - {title} ({nav} → {new_count})")
                 elif d['loved'] and not d['nav_starred']:
                     print(f"⭐ Starred: {artist} - {title}")
+                elif PLAYCOUNT_CONFLICT_RESOLUTION != "ask" and nav > lastfm:
+                    # Show when we kept Navidrome's higher count (non-interactive modes)
+                    print(f"ℹ️  Kept Navidrome count: {artist} - {title} (Navidrome: {nav}, Last.fm: {lastfm})")
             
             # Update sync timestamp
             cache.set_metadata('last_sync_time', datetime.now(timezone.utc).isoformat())

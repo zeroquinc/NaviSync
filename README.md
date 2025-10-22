@@ -83,6 +83,32 @@ Generated files:
 - Use the `.env` file for API keys, database path, and artist whitelist.
 - The artist whitelist allows you to control which artists are treated as the "first artist" in collaborations.
 
+### Playcount Conflict Resolution
+
+When Navidrome has a higher play count than Last.fm, you can control how NaviSync handles this conflict using the `PLAYCOUNT_CONFLICT_RESOLUTION` setting in your `.env` file:
+
+- **`ask`** (default): Interactively prompt for each conflict - gives you full control
+- **`navidrome`**: Always keep Navidrome's count when it's higher - useful if you play music offline or use other clients
+- **`lastfm`**: Always use Last.fm's count - overwrites Navidrome completely  
+- **`higher`**: Always use whichever count is higher - best of both worlds
+- **`increment`**: Add Last.fm count to Navidrome count - combines both sources (e.g., Navidrome:20 + Last.fm:15 = 35)
+
+**Example configuration:**
+```env
+# Keep Navidrome counts when they're higher (no prompts)
+PLAYCOUNT_CONFLICT_RESOLUTION=navidrome
+
+# Combine playcounts from both sources
+PLAYCOUNT_CONFLICT_RESOLUTION=increment
+```
+
+**When to use each mode:**
+- Use **`navidrome`** if you listen offline or use multiple music players and want to preserve those plays
+- Use **`lastfm`** if Last.fm is your single source of truth
+- Use **`higher`** if you want the maximum count from both sources
+- Use **`increment`** if you have separate scrobbling sources (e.g., mobile app not scrobbling to Last.fm, or manual plays in Navidrome)
+- Use **`ask`** if you want to manually review conflicts (good for first sync)
+
 ## Cache Management
 
 The cache is stored in `cache/scrobbles_cache.db` and is automatically managed. The cache includes:

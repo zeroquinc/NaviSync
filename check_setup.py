@@ -18,7 +18,7 @@ def check_env_file():
     
     # Try to load it
     try:
-        from src.config import NAVIDROME_DB_PATH, LASTFM_API_KEY, LASTFM_USER
+        from src.config import NAVIDROME_DB_PATH, LASTFM_API_KEY, LASTFM_USER, PLAYCOUNT_CONFLICT_RESOLUTION
         
         issues = []
         
@@ -38,6 +38,9 @@ def check_env_file():
             issues.append("LASTFM_USER is not set")
         else:
             print(f"✅ Last.fm user: {LASTFM_USER}")
+        
+        # Show conflict resolution mode
+        print(f"✅ Conflict resolution: {PLAYCOUNT_CONFLICT_RESOLUTION}")
         
         if issues:
             print("\n⚠️  Issues found in .env:")

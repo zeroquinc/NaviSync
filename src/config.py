@@ -13,6 +13,21 @@ LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
 LASTFM_USER = os.getenv("LASTFM_USER")
 SCROBBLED_FIRSTARTISTONLY = os.getenv("SCROBBLED_FIRSTARTISTONLY", "True") == "True"
 
+# Playcount conflict resolution strategy
+# Options: "ask", "navidrome", "lastfm", "higher", "increment"
+# - "ask": Prompt user for each conflict (default, interactive)
+# - "navidrome": Always keep Navidrome count when it's higher
+# - "lastfm": Always use Last.fm count
+# - "higher": Always use the higher count between Navidrome and Last.fm
+# - "increment": Add Last.fm count to Navidrome count (useful for combining separate scrobbling sources)
+PLAYCOUNT_CONFLICT_RESOLUTION = os.getenv("PLAYCOUNT_CONFLICT_RESOLUTION", "ask").lower()
+
+# Validate the conflict resolution setting
+VALID_CONFLICT_MODES = ["ask", "navidrome", "lastfm", "higher", "increment"]
+if PLAYCOUNT_CONFLICT_RESOLUTION not in VALID_CONFLICT_MODES:
+    print(f"⚠️  Warning: Invalid PLAYCOUNT_CONFLICT_RESOLUTION '{PLAYCOUNT_CONFLICT_RESOLUTION}', using 'ask'")
+    PLAYCOUNT_CONFLICT_RESOLUTION = "ask"
+
 # Parse whitelist with error handling
 try:
     FIRST_ARTIST_WHITELIST = json.loads(os.getenv("FIRST_ARTIST_WHITELIST", "[]"))
