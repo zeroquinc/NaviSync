@@ -20,5 +20,5 @@ def first_artist(artist):
     return sep_pattern.split(artist_clean)[0].strip()
 
 def make_key(artist, title):
-    from .utils import first_artist, normalize
+    """Create a normalized key for matching artist/title combinations."""
     return (normalize(first_artist(artist)), normalize(title))

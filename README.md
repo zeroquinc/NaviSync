@@ -4,7 +4,9 @@ NaviSync is a Python tool that syncs play counts and loved track information fro
 
 ## Features
 
-- Fetches all recent tracks from Last.fm for a given user.
+- **Intelligent Caching**: Local SQLite cache stores scrobbles to minimize Last.fm API calls and speed up syncs.
+- **Incremental Sync**: Only fetches new scrobbles since the last sync, dramatically reducing sync time.
+- **Loved Tracks Support**: Uses the dedicated `user.getLovedTracks` API endpoint for reliable loved track tracking.
 - Compares Last.fm scrobbles with Navidrome play counts.
 - Detects tracks that are missing or have different play counts.
 - Updates Navidrome play counts and loved/starred status.
@@ -38,7 +40,19 @@ FIRST_ARTIST_WHITELIST=["Suzan & Freek", "Simon & Garfunkel", "AC/DC"]
 **Before running, always make sure your Navidrome db file has a backup and is not running!**
 **I am not responsible for any damage to your Navidrome server.**
 
-Run the script:
+### First-time Setup Check
+
+Run the diagnostic tool to verify your setup:
+
+`python check_setup.py`
+
+This will check:
+- Python version
+- Required dependencies
+- .env configuration
+- Database file existence
+
+### Running the Sync
 
 `python main.py`
 
@@ -46,19 +60,55 @@ Run the script:
 
 The script will:
 
-1. Load your Navidrome database and Last.fm scrobbles and loved tracks.
-2. Compare the data and generate reports for missing and loved tracks.
-3. Update Navidrome play counts and loved tracks from Last.fm.
+1. Initialize or update the local scrobble cache (stored in `cache/scrobbles_cache.db`).
+2. Fetch only new scrobbles from Last.fm since the last sync (much faster after first run!).
+3. Update loved tracks using Last.fm's dedicated loved tracks API.
+4. Load your Navidrome database and compare with cached Last.fm data.
+5. Generate reports for missing and loved tracks.
+6. Update Navidrome play counts and loved tracks from Last.fm.
 
-Generated JSON files are saved in the `json/` folder:
+### First Run vs. Subsequent Runs
+
+- **First run**: Fetches all historical scrobbles (may take a few minutes depending on your scrobble count).
+- **Subsequent runs**: Only fetches new scrobbles since last sync (typically seconds!).
+
+Generated files:
 
 - `json/missing_scrobbles.json` – tracks in Last.fm but missing from Navidrome.
 - `json/missing_loved.json` – loved tracks in Last.fm but missing from Navidrome.
+- `cache/scrobbles_cache.db` – local cache of all your Last.fm scrobbles (auto-managed).
 
 ## Configuration
 
 - Use the `.env` file for API keys, database path, and artist whitelist.
-- The artist whitelist allows you to control which artists are treated as the “first artist” in collaborations.
+- The artist whitelist allows you to control which artists are treated as the "first artist" in collaborations.
+
+## Cache Management
+
+The cache is stored in `cache/scrobbles_cache.db` and is automatically managed. The cache includes:
+
+- All your Last.fm scrobbles with timestamps
+- Loved track status
+- Sync state for each track
+
+### Utility Commands
+
+View cache information:
+```bash
+python cache_info.py --info
+```
+
+Interactive cache management menu:
+```bash
+python cache_info.py
+```
+
+Reset sync status (force full re-sync with Navidrome):
+```bash
+python cache_info.py --reset
+```
+
+If you ever need to completely rebuild the cache, simply delete the `cache/` folder and run the script again.
 
 ## License
 
