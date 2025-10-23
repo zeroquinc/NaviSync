@@ -1,4 +1,5 @@
 import sqlite3
+import re
 import json
 from datetime import datetime, timezone
 from src.config import NAVIDROME_DB_PATH, MISSING_SCROBBLES, MISSING_LOVED, CACHE_DB_PATH, PLAYCOUNT_CONFLICT_RESOLUTION
@@ -85,6 +86,21 @@ def main():
         total_tracks = len(aggregated_scrobbles)
         print(f"\n🔍 Resolving {total_tracks:,} tracks via API...\n")
         
+        def _strip_status_suffix(title: str, status) -> str:
+            """Strip trailing (status) or [status] from a title using explicitStatus.
+            Only removes the exact status token (e.g., explicit, clean), case-insensitive.
+            """
+            if not title:
+                return ""
+            st = (str(status or "").strip())
+            if not st:
+                return title
+            pat_paren = re.compile(r"\s*\(" + re.escape(st) + r"\)\s*$", re.IGNORECASE)
+            pat_brack = re.compile(r"\s*\[" + re.escape(st) + r"\]\s*$", re.IGNORECASE)
+            title2 = pat_paren.sub("", title)
+            title2 = pat_brack.sub("", title2)
+            return title2
+        
         # Pre-index Navidrome library via API if mapping cache is empty (or very small)
         mapping_count = cache.get_mapping_count()
         if mapping_count < 100:  # heuristic threshold
@@ -94,10 +110,9 @@ def main():
             for s in api_client.iterate_all_songs():
                 try:
                     artist = s.get('artist', '')
-                    # Use sortName if available (clean title without subtitle), fallback to title
-                    title = s.get('sortName') or s.get('title', '')
-                    # Store original title for display purposes
-                    display_title = s.get('title', title)
+                    # Use API title and strip explicit/clean suffix if explicitStatus present (no sortName)
+                    display_title = s.get('title', '')
+                    title = _strip_status_suffix(display_title, s.get('explicitStatus')).strip()
                     song_id = s.get('id')
                     play_count = int(s.get('playCount', 0) or 0)
                     starred = bool(s.get('starred', False))
@@ -106,8 +121,15 @@ def main():
                     key = make_key(artist, title)
                     key_str = f"{key[0]}||{key[1]}"
                     cache.set_mapped_song_state(key_str, str(song_id), play_count, starred, artist, display_title)
-                    # Store track for missing reports (use display_title so reports show full title)
-                    indexed_tracks.append({'id': song_id, 'artist': artist, 'title': display_title})
+                    # Store track for matching using clean title; keep display_title for printing
+                    indexed_tracks.append({
+                        'id': song_id,
+                        'artist': artist,
+                        'title': title,
+                        'display_title': display_title,
+                        'display_artist': artist,
+                        'explicit_status': s.get('explicitStatus')
+                    })
                     indexed += 1
                     if indexed % 200 == 0:
                         print(f"  Indexed {indexed:,} songs...", end='\r')
@@ -116,8 +138,23 @@ def main():
             print(f"\n✅ Library index complete. Songs indexed: {indexed:,}; errors: {api_error}\n")
         else:
             print("ℹ️  Using existing Navidrome index from local cache.\n")
-            # Rebuild indexed_tracks from cache for JSON reports
-            indexed_tracks = cache.get_all_indexed_tracks()
+            # Rebuild indexed_tracks from cache, using normalized key for matching and title_orig for display
+            cached_rows = cache.get_all_indexed_tracks()
+            indexed_tracks = []
+            for row in cached_rows:
+                key_str = row.get('key') or ''
+                if '||' in key_str:
+                    artist_norm, title_norm = key_str.split('||', 1)
+                else:
+                    # Fallback to recomputing from stored artist/title
+                    artist_norm, title_norm = make_key(row.get('artist',''), row.get('title',''))
+                indexed_tracks.append({
+                    'id': row['id'],
+                    'artist': artist_norm,
+                    'title': title_norm,
+                    'display_title': row.get('title',''),
+                    'display_artist': row.get('artist','')
+                })
             if not indexed_tracks:
                 print("⚠️  No original track data in cache. JSON reports require a fresh index (delete cache to regenerate).\n")
 
@@ -152,12 +189,61 @@ def main():
             
             track_id = t['id']
             artist = t['artist']
-            title = t['title']
+            title = t['title']  # normalized match title (sortName when available)
             key = make_key(artist, title)
             key_str = f"{key[0]}||{key[1]}"
-            
-            # Look up this Navidrome track in Last.fm aggregated data
-            agg = aggregated_scrobbles.get(key, {'timestamps': [], 'loved': False, 'artist_orig': artist, 'track_orig': title})
+
+            # Build candidate keys to handle cases where Last.fm includes suffixes like (Explicit)
+            candidate_titles = []
+            base_titles = [title]
+            disp_title = t.get('display_title')
+            if disp_title:
+                base_titles.append(disp_title)
+            # Ensure uniqueness and non-empty
+            base_titles = [bt for i, bt in enumerate(base_titles) if bt and bt not in base_titles[:i]]
+
+            # Always try the clean and display titles first
+            for bt in base_titles:
+                candidate_titles.append(bt)
+
+            # If we know explicit status, generate bracket/paren variants; also try generic explicit/clean variants
+            explicit_status = (t.get('explicit_status') or '').strip().lower()
+            status_variants = []
+            if explicit_status in ('explicit', 'clean'):
+                status_variants = [explicit_status]
+            else:
+                # Try both common markers as fallback when status unknown
+                status_variants = ['explicit', 'clean']
+
+            for bt in base_titles:
+                for st in status_variants:
+                    candidate_titles.append(f"{bt} ({st})")
+                    candidate_titles.append(f"{bt} [{st}]")
+
+            # Deduplicate candidate titles while preserving order
+            seen_ct = set()
+            unique_candidate_titles = []
+            for ct in candidate_titles:
+                if ct not in seen_ct:
+                    seen_ct.add(ct)
+                    unique_candidate_titles.append(ct)
+
+            # Look up this Navidrome track in Last.fm aggregated data using the first candidate that matches
+            best_agg = None
+            best_key = None
+            best_count = -1
+            for ct in unique_candidate_titles:
+                k = make_key(artist, ct)
+                agg_try = aggregated_scrobbles.get(k)
+                if agg_try and len(agg_try.get('timestamps', [])) > best_count:
+                    best_agg = agg_try
+                    best_key = k
+                    best_count = len(agg_try.get('timestamps', []))
+
+            # Default if nothing matched
+            if best_agg is None:
+                best_agg = {'timestamps': [], 'loved': False, 'artist_orig': artist, 'track_orig': title}
+                best_key = key
             
             # Get cached Navidrome state
             cached_state = cache.get_mapped_song_state(key_str)
@@ -168,10 +254,10 @@ def main():
             nav_count = cached_state['play_count']
             nav_starred = cached_state['starred']
             
-            track_scrobbles = agg['timestamps']
+            track_scrobbles = best_agg['timestamps']
             lastfm_count = len(track_scrobbles)
             last_played = max(track_scrobbles) if track_scrobbles else None
-            loved = agg['loved']
+            loved = best_agg['loved']
             
             if lastfm_count > 0:
                 tracks_with_scrobbles += 1
@@ -180,13 +266,16 @@ def main():
                 differences.append({
                     'id': track_id,
                     'artist': artist,
+                    'display_artist': t.get('display_artist', artist),
                     'title': title,
+                    'display_title': disp_title or title,
                     'navidrome': nav_count,
                     'nav_starred': nav_starred,
                     'lastfm': lastfm_count,
                     'nav_played': None,
                     'last_played': last_played,
-                    'loved': loved
+                    'loved': loved,
+                    'match_key': best_key
                 })
 
         print(f"\n✅ Processing complete! Found {tracks_with_scrobbles:,} tracks with Last.fm scrobbles.\n")
@@ -278,7 +367,9 @@ def main():
         
         for d in differences:
             diff_str = f"{d['lastfm'] - d['navidrome']:+d}"
-            print(f"  - {d['artist']} - {d['title']}")
+            to_show = d.get('display_title', d['title'])
+            artist_show = d.get('display_artist', d['artist'])
+            print(f"  - {artist_show} - {to_show}")
             print(f"    Navidrome: {d['navidrome']} | Last.fm: {d['lastfm']} | Diff: {diff_str} | Loved: {d['loved']}")
 
         proceed = input("\nProceed with reviewing and updating these tracks? [y/N]: ").strip().lower()
@@ -304,7 +395,8 @@ def main():
                     delta = max(0, lastfm - nav)
                     new_nav_count = nav  # Track the updated count
                     if delta > 0:
-                        ts_list = sorted(aggregated_scrobbles.get(key, {'timestamps': []})['timestamps'])
+                        match_key = d.get('match_key') or key
+                        ts_list = sorted(aggregated_scrobbles.get(match_key, {'timestamps': []})['timestamps'])
                         to_send = ts_list[-delta:] if delta <= len(ts_list) else ts_list
                         planned = len(to_send)
                         sent_ok = 0
@@ -317,8 +409,11 @@ def main():
                             api_scrobbled_tracks += 1
                             updated_playcounts += 1
                             new_nav_count = nav + sent_ok
-                            cache.mark_scrobbles_synced(artist, title)
-                            print(f"📤 API scrobbled: {artist} - {title} (+{sent_ok}/{planned})")
+                            agg_for_key = aggregated_scrobbles.get(match_key, {})
+                            orig_artist = agg_for_key.get('artist_orig', artist)
+                            orig_title = agg_for_key.get('track_orig', d.get('display_title', title))
+                            cache.mark_scrobbles_synced(orig_artist, orig_title)
+                            print(f"📤 API scrobbled: {d.get('display_artist', artist)} - {d.get('display_title', title)} (+{sent_ok}/{planned})")
                         else:
                             print(f"⚠️  API scrobble failed: {artist} - {title}")
                     
@@ -329,7 +424,7 @@ def main():
                         if ok:
                             updated_loved += 1
                             new_starred = True
-                            print(f"⭐ Starred via API: {artist} - {title}")
+                            print(f"⭐ Starred via API: {d.get('display_artist', artist)} - {d.get('display_title', title)}")
                         else:
                             print(f"⚠️  Failed to star via API: {artist} - {title}")
                     
