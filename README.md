@@ -2,6 +2,14 @@
 
 NaviSync is a Python tool that syncs play counts and loved track information from Last.fm to a Navidrome server. It ensures your local music library in Navidrome reflects your listening history on Last.fm.
 
+⚠️ **WARNING:**
+
+**This script writes to the Navidrome database, always make sure Navidrome is NOT running and make a backup of the db file!** 
+
+**I am not responsible for any damage to your Navidrome server.**
+
+The script has a built-in check to see if Navidrome is running and if the database file is locked, but better be safe than sorry.
+
 ## Features
 
 - **Intelligent Caching**: Local SQLite cache stores scrobbles to minimize Last.fm API calls and speed up syncs.
@@ -11,6 +19,7 @@ NaviSync is a Python tool that syncs play counts and loved track information fro
 - Detects tracks that are missing or have different play counts.
 - Updates Navidrome play counts and loved/starred status.
 - Generates JSON reports for missing or loved tracks.
+- Health checks to see if Navidrome is running.
 
 ## Installation
 
@@ -37,8 +46,9 @@ FIRST_ARTIST_WHITELIST=["Suzan & Freek", "Simon & Garfunkel", "AC/DC"]
 
 ## Usage
 
-**Before running, always make sure your Navidrome db file has a backup and is not running!**
-**I am not responsible for any damage to your Navidrome server.**
+⚠️ **Before running, always make sure your Navidrome db file has a backup and is not running!** ⚠️
+
+⚠️ **I am not responsible for any damage to your Navidrome server.** ⚠️
 
 ### First-time Setup Check
 
