@@ -27,9 +27,10 @@ def first_artist(artist):
         if artist_lower == wl_lower or artist_lower.startswith(wl_lower):
             return wl  # preserve canonical casing from whitelist
 
-    # Fallback: split on common separators (feat., &, ',', '/', '-', with, etc.)
+    # Fallback: split on common separators (feat., &, ',', '/', '-', with, bullet point, etc.)
+    # The bullet point (•) is handled separately as it may not have spaces around it
     sep_pattern = re.compile(
-        r"\s+(feat\.?|ft\.?|featuring|&|;|,|/|-|mit|met|with)\s+",
+        r"\s+(feat\.?|ft\.?|featuring|&|;|,|/|-|x|vs\.?|and|mit|met|with)\s+|•",
         flags=re.IGNORECASE,
     )
     return sep_pattern.split(artist_clean)[0].strip()
