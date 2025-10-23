@@ -9,6 +9,7 @@ load_dotenv()
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 NAVIDROME_DB_PATH = os.getenv("NAVIDROME_DB_PATH")
+NAVIDROME_API_URL = os.getenv("NAVIDROME_API_URL")  # Optional: e.g., "http://navidrome.local/rest/ping.view"
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
 LASTFM_USER = os.getenv("LASTFM_USER")
 SCROBBLED_FIRSTARTISTONLY = os.getenv("SCROBBLED_FIRSTARTISTONLY", "True") == "True"

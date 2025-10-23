@@ -1,8 +1,9 @@
 import sqlite3
 import json
+import sys
 from datetime import datetime, timezone
-from src.config import NAVIDROME_DB_PATH, MISSING_SCROBBLES, MISSING_LOVED, CACHE_DB_PATH, PLAYCOUNT_CONFLICT_RESOLUTION
-from src.db import get_navidrome_user_id, get_all_tracks, get_annotation_playcount_starred, update_annotation
+from src.config import NAVIDROME_DB_PATH, NAVIDROME_API_URL, MISSING_SCROBBLES, MISSING_LOVED, CACHE_DB_PATH, PLAYCOUNT_CONFLICT_RESOLUTION
+from src.db import get_navidrome_user_id, get_all_tracks, get_annotation_playcount_starred, update_annotation, check_navidrome_active, update_artist_play_counts, update_album_play_counts
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks
 from src.utils import make_key, aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
@@ -48,6 +49,18 @@ def main():
         if not all_scrobbles:
             print("⚠️  No scrobbles found in cache. This might be your first run or your Last.fm account has no scrobbles.")
             print("   If this seems wrong, check your LASTFM_USER and LASTFM_API_KEY in .env file.\n")
+        
+        # CRITICAL: Check if Navidrome is running before accessing database
+        print("🔍 Checking if Navidrome is active...")
+        is_active, reason = check_navidrome_active(NAVIDROME_DB_PATH, navidrome_api_url=NAVIDROME_API_URL)
+        
+        if is_active:
+            print(f"❌ ERROR: {reason}")
+            print("⚠️  CANNOT proceed - Navidrome must be stopped before syncing!")
+            print("    This prevents database corruption from simultaneous access.\n")
+            sys.exit(1)
+        
+        print(f"✅ {reason}\n")
         
         # Get Navidrome data
         NAVIDROME_USER_ID = get_navidrome_user_id(NAVIDROME_DB_PATH)
@@ -222,6 +235,12 @@ def main():
             
             # Update sync timestamp
             cache.set_metadata('last_sync_time', datetime.now(timezone.utc).isoformat())
+            
+            # Update artist and album play counts after updating tracks
+            print("\n🎨 Updating artist and album play counts...")
+            artists_updated = update_artist_play_counts(conn, NAVIDROME_USER_ID)
+            albums_updated = update_album_play_counts(conn, NAVIDROME_USER_ID)
+            print(f"✅ Updated play counts for {artists_updated} artists and {albums_updated} albums")
             
             # Show summary
             print(f"\n{'='*60}")
