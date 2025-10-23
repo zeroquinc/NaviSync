@@ -13,13 +13,7 @@ LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
 LASTFM_USER = os.getenv("LASTFM_USER")
 SCROBBLED_FIRSTARTISTONLY = os.getenv("SCROBBLED_FIRSTARTISTONLY", "True") == "True"
 
-# Playcount conflict resolution strategy
-# Options: "ask", "navidrome", "lastfm", "higher", "increment"
-# - "ask": Prompt user for each conflict (default, interactive)
-# - "navidrome": Always keep Navidrome count when it's higher
-# - "lastfm": Always use Last.fm count
-# - "higher": Always use the higher count between Navidrome and Last.fm
-# - "increment": Add Last.fm count to Navidrome count (useful for combining separate scrobbling sources)
+# Playcount conflict resolution setting
 PLAYCOUNT_CONFLICT_RESOLUTION = os.getenv("PLAYCOUNT_CONFLICT_RESOLUTION", "ask").lower()
 
 # Validate the conflict resolution setting
@@ -36,21 +30,26 @@ except json.JSONDecodeError:
     FIRST_ARTIST_WHITELIST = []
 
 def validate_config():
-    """Validate required configuration values."""
+    """Validate required configuration values.
+
+    In DB mode (USE_NAVIDROME_API=False), NAVIDROME_DB_PATH must exist.
+    In API-only mode (USE_NAVIDROME_API=True), NAVIDROME_DB_PATH is not required.
+    """
     missing = []
-    
-    if not NAVIDROME_DB_PATH:
-        missing.append("NAVIDROME_DB_PATH")
-    elif not os.path.exists(NAVIDROME_DB_PATH):
-        print(f"❌ Error: Navidrome database not found at: {NAVIDROME_DB_PATH}")
-        sys.exit(1)
-    
+
+    if not USE_NAVIDROME_API:
+        if not NAVIDROME_DB_PATH:
+            missing.append("NAVIDROME_DB_PATH")
+        elif not os.path.exists(NAVIDROME_DB_PATH):
+            print(f"❌ Error: Navidrome database not found at: {NAVIDROME_DB_PATH}")
+            sys.exit(1)
+
     if not LASTFM_API_KEY:
         missing.append("LASTFM_API_KEY")
-    
+
     if not LASTFM_USER:
         missing.append("LASTFM_USER")
-    
+
     if missing:
         print(f"❌ Error: Missing required environment variables in .env file:")
         for var in missing:
@@ -70,3 +69,12 @@ MISSING_LOVED = os.path.join(JSON_FOLDER, "missing_loved.json")
 CACHE_FOLDER = os.path.join(PROJECT_ROOT, "cache")
 os.makedirs(CACHE_FOLDER, exist_ok=True)  # create cache folder if it doesn't exist
 CACHE_DB_PATH = os.path.join(CACHE_FOLDER, "scrobbles_cache.db")
+
+# Navidrome API (Subsonic/OpenSubsonic) configuration
+USE_NAVIDROME_API = os.getenv("USE_NAVIDROME_API", "False").lower() == "true"
+NAVIDROME_URL = os.getenv("NAVIDROME_URL", "")  # e.g., https://navidrome.example.com
+NAVIDROME_API_USER = os.getenv("NAVIDROME_API_USER", os.getenv("NAVIDROME_USERNAME", "")) or os.getenv("NAVIDROME_USER", "")
+NAVIDROME_API_PASSWORD = os.getenv("NAVIDROME_API_PASSWORD", os.getenv("NAVIDROME_PASSWORD", ""))
+NAVIDROME_API_VERSION = os.getenv("NAVIDROME_API_VERSION", "1.16.1")
+NAVIDROME_CLIENT_ID = os.getenv("NAVIDROME_CLIENT_ID", "NaviSync")
+API_RATE_LIMIT_MS = int(os.getenv("API_RATE_LIMIT_MS", "200"))

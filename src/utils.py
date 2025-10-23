@@ -4,8 +4,12 @@ from datetime import datetime, timezone
 from .config import FIRST_ARTIST_WHITELIST, SCROBBLED_FIRSTARTISTONLY
 
 def normalize(s):
-    """Normalize a string for comparison (lowercase, trimmed)."""
-    return s.strip().lower() if s else ""
+    """Normalize a string for comparison (lowercase, trimmed, whitespace collapsed)."""
+    if not s:
+        return ""
+    # Collapse whitespace and normalize case only
+    result = " ".join(s.split())
+    return result.strip().lower()
 
 def first_artist(artist):
     """Extract the primary artist from a collaboration string."""

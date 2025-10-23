@@ -1,5 +1,6 @@
 import requests
 import time
+import sys
 from .config import LASTFM_API_KEY, LASTFM_USER
 
 MAX_RETRIES = 5
@@ -91,8 +92,11 @@ def fetch_all_lastfm_scrobbles(from_timestamp=0):
                     'loved': loved
                 })
 
+        # Update progress after processing this page
         total_pages = int(data.get('recenttracks', {}).get('@attr', {}).get('totalPages', 1))
-        print(f"  Fetched page {page}/{total_pages}, new scrobbles: {len(scrobbles)}")
+        # Single-line progress update
+        prog = f"  Fetched page {page}/{total_pages}, new scrobbles: {len(scrobbles)}"
+        print("\r" + prog, end="", flush=True)
         
         if stop_fetching:
             print(f"  Reached cached scrobbles, stopping early.")
@@ -101,6 +105,8 @@ def fetch_all_lastfm_scrobbles(from_timestamp=0):
         page += 1
         time.sleep(REQUEST_DELAY)
     
+    # Finish progress line
+    print()
     print(f"Finished fetching {len(scrobbles)} new scrobbles.\n")
     return scrobbles
 
@@ -143,9 +149,13 @@ def fetch_loved_tracks():
             })
 
         total_pages = int(data.get('lovedtracks', {}).get('@attr', {}).get('totalPages', 1))
-        print(f"  Fetched page {page}/{total_pages}, total loved tracks: {len(loved_tracks)}")
+        # Single-line progress update
+        prog = f"  Fetched page {page}/{total_pages}, total loved tracks: {len(loved_tracks)}"
+        print("\r" + prog, end="", flush=True)
         page += 1
         time.sleep(REQUEST_DELAY)
     
+    # Finish progress line
+    print()
     print(f"Finished fetching {len(loved_tracks)} loved tracks.\n")
     return loved_tracks

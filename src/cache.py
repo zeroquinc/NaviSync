@@ -1,5 +1,4 @@
 import sqlite3
-import os
 from datetime import datetime, timezone
 
 class ScrobbleCache:
@@ -58,6 +57,39 @@ class ScrobbleCache:
                 value TEXT
             )
         """)
+
+        # Mapping from normalized artist/title key to Navidrome song id for API-only mode
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS navidrome_track_map (
+                key TEXT PRIMARY KEY,
+                song_id TEXT NOT NULL,
+                artist_orig TEXT,
+                title_orig TEXT,
+                play_count INTEGER DEFAULT 0,
+                starred INTEGER DEFAULT 0,
+                updated_at INTEGER
+            )
+        """)
+        
+        # Table to remember keys that had no confident match via API (negative cache)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS navidrome_track_nomatch (
+                key TEXT PRIMARY KEY,
+                updated_at INTEGER
+            )
+        """)
+        
+        # Migrate existing navidrome_track_map if needed (add new columns)
+        cursor.execute("PRAGMA table_info(navidrome_track_map)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if 'play_count' not in columns:
+            cursor.execute("ALTER TABLE navidrome_track_map ADD COLUMN play_count INTEGER DEFAULT 0")
+        if 'starred' not in columns:
+            cursor.execute("ALTER TABLE navidrome_track_map ADD COLUMN starred INTEGER DEFAULT 0")
+        if 'artist_orig' not in columns:
+            cursor.execute("ALTER TABLE navidrome_track_map ADD COLUMN artist_orig TEXT")
+        if 'title_orig' not in columns:
+            cursor.execute("ALTER TABLE navidrome_track_map ADD COLUMN title_orig TEXT")
         
         conn.commit()
         conn.close()
@@ -278,5 +310,109 @@ class ScrobbleCache:
         conn = sqlite3.connect(self.cache_db_path)
         cursor = conn.cursor()
         cursor.execute("UPDATE scrobbles SET synced = 0")
+        conn.commit()
+        conn.close()
+
+    # --- Navidrome ID mapping helpers (for pure API mode) ---
+    def get_mapped_song_id(self, key: str):
+        """Return cached Navidrome song id for a normalized key, or None."""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT song_id FROM navidrome_track_map WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+    
+    def get_mapped_song_state(self, key: str):
+        """Return cached (song_id, play_count, starred) for a key, or None."""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT song_id, play_count, starred FROM navidrome_track_map WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return {'song_id': row[0], 'play_count': row[1], 'starred': bool(row[2])}
+        return None
+
+    def set_mapped_song_id(self, key: str, song_id: str):
+        """Cache a Navidrome song id for a normalized key."""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO navidrome_track_map(key, song_id, updated_at)
+            VALUES (?, ?, strftime('%s','now'))
+            """,
+            (key, song_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_mapping_count(self) -> int:
+        """Return number of entries in navidrome_track_map."""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM navidrome_track_map")
+        cnt = cursor.fetchone()[0]
+        conn.close()
+        return int(cnt or 0)
+
+    def get_all_indexed_tracks(self):
+        """Return list of all indexed Navidrome tracks with original and key data.
+
+        Returns list of dicts: {id, artist, title, key}
+        - id: Navidrome song id
+        - artist/title: original values as stored (for display)
+        - key: normalized key string "artistnorm||titlenorm"
+        """
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT song_id, artist_orig, title_orig, key FROM navidrome_track_map WHERE artist_orig IS NOT NULL")
+        tracks = []
+        for row in cursor.fetchall():
+            tracks.append({'id': row[0], 'artist': row[1] or '', 'title': row[2] or '', 'key': row[3] or ''})
+        conn.close()
+        return tracks
+    
+    def set_mapped_song_state(self, key: str, song_id: str, play_count: int, starred: bool, artist_orig: str = "", title_orig: str = ""):
+        """Cache song ID, playCount, starred state, and optionally original artist/title."""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO navidrome_track_map(key, song_id, play_count, starred, artist_orig, title_orig, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'))
+            """,
+            (key, song_id, play_count, 1 if starred else 0, artist_orig or None, title_orig or None),
+        )
+        conn.commit()
+        conn.close()
+
+    # --- Negative match cache helpers ---
+    def is_nomatch(self, key: str) -> bool:
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM navidrome_track_nomatch WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
+
+    def set_nomatch(self, key: str):
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO navidrome_track_nomatch(key, updated_at)
+            VALUES (?, strftime('%s','now'))
+            """,
+            (key,),
+        )
+        conn.commit()
+        conn.close()
+
+    def clear_nomatch(self, key: str):
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM navidrome_track_nomatch WHERE key = ?", (key,))
         conn.commit()
         conn.close()
