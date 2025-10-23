@@ -85,4 +85,10 @@ def group_missing_by_artist_album(aggregated_scrobbles, tracks):
             if info["loved"]:
                 missing_loved.setdefault(artist, {}).setdefault(album, []).append(track_entry)
 
+    # Sort by artist name alphabetically, and albums within each artist
+    missing_scrobbles = {artist: dict(sorted(albums.items())) 
+                         for artist, albums in sorted(missing_scrobbles.items())}
+    missing_loved = {artist: dict(sorted(albums.items())) 
+                     for artist, albums in sorted(missing_loved.items())}
+
     return missing_scrobbles, missing_loved

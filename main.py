@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from src.config import NAVIDROME_DB_PATH, NAVIDROME_API_URL, MISSING_SCROBBLES, MISSING_LOVED, CACHE_DB_PATH, PLAYCOUNT_CONFLICT_RESOLUTION
 from src.db import get_navidrome_user_id, get_all_tracks, get_annotation_playcount_starred, update_annotation, check_navidrome_active, update_artist_play_counts, update_album_play_counts
@@ -163,6 +164,7 @@ def main():
             updated_playcounts = 0
             updated_loved = 0
             conflicts_resolved = 0
+            updated_track_ids = []  # Track which tracks were updated
             
             for d in differences:
                 nav = d['navidrome']
@@ -213,8 +215,14 @@ def main():
                     new_count = nav
 
                 # Check if loved status will be updated
-                if d['loved'] and not d['nav_starred']:
+                will_update_loved = d['loved'] and not d['nav_starred']
+                if will_update_loved:
                     updated_loved += 1
+
+                # Track if this record was actually modified
+                track_was_updated = (new_count != nav) or will_update_loved
+                if track_was_updated:
+                    updated_track_ids.append(d['id'])
 
                 update_annotation(conn, d['id'], new_count, d['last_played'], d['loved'], NAVIDROME_USER_ID)
 
@@ -227,7 +235,7 @@ def main():
                         print(f"➕ Incremented playcount: {artist} - {title} ({nav} + {lastfm} = {new_count})")
                     else:
                         print(f"✅ Updated playcount: {artist} - {title} ({nav} → {new_count})")
-                elif d['loved'] and not d['nav_starred']:
+                elif will_update_loved:
                     print(f"⭐ Starred: {artist} - {title}")
                 elif PLAYCOUNT_CONFLICT_RESOLUTION != "ask" and nav > lastfm:
                     # Show when we kept Navidrome's higher count (non-interactive modes)
@@ -236,10 +244,10 @@ def main():
             # Update sync timestamp
             cache.set_metadata('last_sync_time', datetime.now(timezone.utc).isoformat())
             
-            # Update artist and album play counts after updating tracks
+            # Update artist and album play counts only for affected tracks
             print("\n🎨 Updating artist and album play counts...")
-            artists_updated = update_artist_play_counts(conn, NAVIDROME_USER_ID)
-            albums_updated = update_album_play_counts(conn, NAVIDROME_USER_ID)
+            artists_updated = update_artist_play_counts(conn, NAVIDROME_USER_ID, updated_track_ids)
+            albums_updated = update_album_play_counts(conn, NAVIDROME_USER_ID, updated_track_ids)
             print(f"✅ Updated play counts for {artists_updated} artists and {albums_updated} albums")
             
             # Show summary
@@ -257,6 +265,10 @@ def main():
         print("\n✅ All tracks are already in sync!")
 
     conn.close()
+    
+    # Wait 2 seconds to ensure database connection is fully released
+    print("🔒 Closing database connection...")
+    time.sleep(2)
 
 if __name__ == "__main__":
     main()
