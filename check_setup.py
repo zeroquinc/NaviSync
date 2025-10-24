@@ -66,20 +66,32 @@ def check_dependencies():
     """Check if required packages are installed."""
     print("\n📦 Checking dependencies...")
     
+    missing = []
+    
     try:
         import requests
         print("✅ requests is installed")
     except ImportError:
         print("❌ requests is not installed")
-        print("   → Run: pip install -r requirements.txt")
-        return False
+        missing.append("requests")
     
     try:
         import dotenv
-        print("✅ python-dotenv is installed")
+        print("✅ python-dotenv is installed") 
     except ImportError:
         print("❌ python-dotenv is not installed")
-        print("   → Run: pip install -r requirements.txt")
+        missing.append("python-dotenv")
+    
+    try:
+        import tqdm
+        print("✅ tqdm is installed")
+    except ImportError:
+        print("❌ tqdm is not installed")
+        missing.append("tqdm")
+    
+    if missing:
+        print(f"\n   → Run: pip install {' '.join(missing)}")
+        print("   → Or: pip install -r requirements.txt")
         return False
     
     return True
@@ -111,10 +123,17 @@ def test_navidrome_connection():
             print("❌ Could not connect to Navidrome")
             print("   → Check if Navidrome is running")
             print("   → Verify URL, username, and password")
+            print(f"   → Trying to reach: {NAVIDROME_URL}")
             return False
             
+    except ImportError as e:
+        print(f"❌ Missing dependency: {e}")
+        print("   → Run: pip install -r requirements.txt")
+        return False
     except Exception as e:
         print(f"❌ Connection test failed: {e}")
+        print("   → This could be a network issue or invalid credentials")
+        print(f"   → Trying to reach: {NAVIDROME_URL}")
         return False
 
 
