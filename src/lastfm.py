@@ -1,5 +1,6 @@
 import requests
 import time
+from tqdm import tqdm
 from .config import LASTFM_API_KEY, LASTFM_USER
 
 MAX_RETRIES = 5
@@ -51,8 +52,14 @@ def fetch_all_lastfm_scrobbles(from_timestamp=0):
     total_pages = 1
     now = int(time.time())
     stop_fetching = False
+    pbar = None
 
     while page <= total_pages and not stop_fetching:
+        # Initialize progress bar once we know total pages
+        if pbar is None and total_pages > 1:
+            pbar = tqdm(total=total_pages, desc="Fetching scrobble pages", unit="page",
+                       bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
+        
         url = (
             f"http://ws.audioscrobbler.com/2.0/?method=user.getRecentTracks"
             f"&user={LASTFM_USER}&api_key={LASTFM_API_KEY}"
@@ -60,6 +67,8 @@ def fetch_all_lastfm_scrobbles(from_timestamp=0):
         )
         data = fetch_lastfm_page(url)
         if not data:
+            if pbar:
+                pbar.update(1)
             page += 1
             continue
 
@@ -92,16 +101,29 @@ def fetch_all_lastfm_scrobbles(from_timestamp=0):
                 })
 
         total_pages = int(data.get('recenttracks', {}).get('@attr', {}).get('totalPages', 1))
-        print(f"  Fetched page {page}/{total_pages}, new scrobbles: {len(scrobbles)}")
+        
+        # Update progress bar
+        if pbar:
+            pbar.set_postfix_str(f"{len(scrobbles)} scrobbles")
+            pbar.update(1)
+        elif total_pages == 1:
+            # Single page - show simple progress
+            print(f"  Fetched {len(scrobbles)} scrobbles from single page")
         
         if stop_fetching:
-            print(f"  Reached cached scrobbles, stopping early.")
+            if pbar:
+                pbar.set_postfix_str(f"Reached cached data, stopped early")
+            else:
+                print(f"  Reached cached scrobbles, stopping early.")
             break
         
         page += 1
         time.sleep(REQUEST_DELAY)
     
-    print(f"Finished fetching {len(scrobbles)} new scrobbles.\n")
+    if pbar:
+        pbar.close()
+    
+    print(f"✅ Fetched {len(scrobbles)} new scrobbles.\n")
     return scrobbles
 
 def fetch_loved_tracks():
@@ -113,8 +135,14 @@ def fetch_loved_tracks():
     loved_tracks = []
     page = 1
     total_pages = 1
+    pbar = None
 
     while page <= total_pages:
+        # Initialize progress bar once we know total pages
+        if pbar is None and total_pages > 1:
+            pbar = tqdm(total=total_pages, desc="Fetching loved tracks", unit="page",
+                       bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
+        
         url = (
             f"http://ws.audioscrobbler.com/2.0/?method=user.getLovedTracks"
             f"&user={LASTFM_USER}&api_key={LASTFM_API_KEY}"
@@ -122,6 +150,8 @@ def fetch_loved_tracks():
         )
         data = fetch_lastfm_page(url)
         if not data:
+            if pbar:
+                pbar.update(1)
             page += 1
             continue
 
@@ -143,9 +173,20 @@ def fetch_loved_tracks():
             })
 
         total_pages = int(data.get('lovedtracks', {}).get('@attr', {}).get('totalPages', 1))
-        print(f"  Fetched page {page}/{total_pages}, total loved tracks: {len(loved_tracks)}")
+        
+        # Update progress bar
+        if pbar:
+            pbar.set_postfix_str(f"{len(loved_tracks)} loved tracks")
+            pbar.update(1)
+        elif total_pages == 1:
+            # Single page - show simple progress
+            print(f"  Fetched {len(loved_tracks)} loved tracks from single page")
+        
         page += 1
         time.sleep(REQUEST_DELAY)
     
-    print(f"Finished fetching {len(loved_tracks)} loved tracks.\n")
+    if pbar:
+        pbar.close()
+    
+    print(f"✅ Fetched {len(loved_tracks)} loved tracks.\n")
     return loved_tracks

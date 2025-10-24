@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 
+
 def check_env_file():
     """Check if .env file exists and has required variables."""
     if not os.path.exists('.env'):
@@ -18,17 +19,27 @@ def check_env_file():
     
     # Try to load it
     try:
-        from src.config import NAVIDROME_DB_PATH, LASTFM_API_KEY, LASTFM_USER, PLAYCOUNT_CONFLICT_RESOLUTION
+        from src.config import NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASSWORD, LASTFM_API_KEY, LASTFM_USER
         
         issues = []
         
-        if not NAVIDROME_DB_PATH:
-            issues.append("NAVIDROME_DB_PATH is not set")
-        elif not os.path.exists(NAVIDROME_DB_PATH):
-            issues.append(f"NAVIDROME_DB_PATH points to non-existent file: {NAVIDROME_DB_PATH}")
+        # Check Navidrome API credentials
+        if not NAVIDROME_URL:
+            issues.append("NAVIDROME_URL is not set")
         else:
-            print(f"✅ Navidrome database found: {NAVIDROME_DB_PATH}")
+            print(f"✅ Navidrome URL: {NAVIDROME_URL}")
         
+        if not NAVIDROME_USER:
+            issues.append("NAVIDROME_USER is not set")
+        else:
+            print(f"✅ Navidrome user: {NAVIDROME_USER}")
+        
+        if not NAVIDROME_PASSWORD:
+            issues.append("NAVIDROME_PASSWORD is not set")
+        else:
+            print(f"✅ Navidrome password: {'*' * len(NAVIDROME_PASSWORD)}")
+        
+        # Check Last.fm credentials
         if not LASTFM_API_KEY:
             issues.append("LASTFM_API_KEY is not set")
         else:
@@ -38,9 +49,6 @@ def check_env_file():
             issues.append("LASTFM_USER is not set")
         else:
             print(f"✅ Last.fm user: {LASTFM_USER}")
-        
-        # Show conflict resolution mode
-        print(f"✅ Conflict resolution: {PLAYCOUNT_CONFLICT_RESOLUTION}")
         
         if issues:
             print("\n⚠️  Issues found in .env:")
@@ -52,6 +60,7 @@ def check_env_file():
     except Exception as e:
         print(f"❌ Error loading configuration: {e}")
         return False
+
 
 def check_dependencies():
     """Check if required packages are installed."""
@@ -75,14 +84,39 @@ def check_dependencies():
     
     return True
 
-def check_navidrome_backup():
-    """Remind user about backing up Navidrome database."""
-    print("\n⚠️  IMPORTANT REMINDER:")
-    print("=" * 60)
-    print("Before running NaviSync, make sure:")
-    print("1. Your Navidrome database is backed up")
-    print("2. Navidrome is NOT running")
-    print("=" * 60)
+
+def test_navidrome_connection():
+    """Test connection to Navidrome API."""
+    print("\n🔗 Testing Navidrome connection...")
+    
+    try:
+        from src.config import NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASSWORD
+        from api import NavidromeAPI
+        
+        if not all([NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASSWORD]):
+            print("⚠️  Skipping connection test (credentials not configured)")
+            return True
+        
+        # Type assertions (we already checked they're not None above)
+        assert NAVIDROME_URL is not None
+        assert NAVIDROME_USER is not None
+        assert NAVIDROME_PASSWORD is not None
+        
+        api = NavidromeAPI(NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASSWORD)
+        
+        if api.ping():
+            print("✅ Successfully connected to Navidrome!")
+            return True
+        else:
+            print("❌ Could not connect to Navidrome")
+            print("   → Check if Navidrome is running")
+            print("   → Verify URL, username, and password")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Connection test failed: {e}")
+        return False
+
 
 def main():
     print("NaviSync Diagnostic Check")
@@ -103,13 +137,15 @@ def main():
     print("\n🔧 Checking configuration...")
     config_ok = check_env_file()
     
+    # Test Navidrome connection
+    connection_ok = test_navidrome_connection()
+    
     print()
     
-    if deps_ok and config_ok:
+    if deps_ok and config_ok and connection_ok:
         print("=" * 60)
         print("✅ All checks passed! You're ready to run NaviSync.")
         print("=" * 60)
-        check_navidrome_backup()
         print("\nRun: python main.py")
     else:
         print("=" * 60)
@@ -117,6 +153,7 @@ def main():
         print("=" * 60)
     
     print()
+
 
 if __name__ == "__main__":
     main()

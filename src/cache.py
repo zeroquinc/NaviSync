@@ -280,3 +280,4 @@ class ScrobbleCache:
         cursor.execute("UPDATE scrobbles SET synced = 0")
         conn.commit()
         conn.close()
+
