@@ -124,6 +124,32 @@ def test_navidrome_connection():
             print("   → Check if Navidrome is running")
             print("   → Verify URL, username, and password")
             print(f"   → Trying to reach: {NAVIDROME_URL}")
+            
+            # Check if it's a subpath issue
+            print("\n🔍 Testing for common subpath issues...")
+            import requests
+            import re
+            try:
+                response = requests.get(NAVIDROME_URL, timeout=10)
+                if "Found" in response.text:
+                    # Look for href="/some/path/" in the response
+                    href_match = re.search(r'href="([^"]+)"', response.text)
+                    if href_match:
+                        suggested_path = href_match.group(1).rstrip('/')
+                        if suggested_path and suggested_path != '/':
+                            suggested_url = f"{NAVIDROME_URL.rstrip('/')}{suggested_path}"
+                            print("⚠️  DETECTED: Navidrome appears to be running on a subpath!")
+                            print(f"   → Your URL: {NAVIDROME_URL}")
+                            print(f"   → Try: {suggested_url}")
+                            print("   → Update NAVIDROME_URL in your .env file")
+                        else:
+                            print("   → Got redirect but couldn't determine correct path")
+                elif response.status_code == 200:
+                    print("   → Base URL responds but API connection failed")
+                    print("   → This might be an authentication issue")
+            except Exception as e:
+                print(f"   → Could not test base URL: {e}")
+            
             return False
             
     except ImportError as e:
