@@ -91,7 +91,7 @@ def test_navidrome_connection():
     
     try:
         from src.config import NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASSWORD
-        from api import NavidromeAPI
+        from src.api import NavidromeAPI
         
         if not all([NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASSWORD]):
             print("⚠️  Skipping connection test (credentials not configured)")
