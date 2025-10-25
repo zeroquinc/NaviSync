@@ -146,6 +146,35 @@ def main_api_mode():
         not_found_tracks = sum(1 for tid in search_results.values() if not tid)
         print(f"✅ Search complete: {found_tracks} found, {not_found_tracks} not found\n")
         
+        # Generate missing tracks analysis using the search results we already have
+        print("💾 Generating missing tracks analysis from search results...")
+        
+        # Get ALL scrobbles from cache for complete analysis
+        all_scrobbles = cache.get_all_scrobbles()
+        all_aggregated = aggregate_scrobbles(all_scrobbles)
+        
+        # Create a "fake" tracks list from our search results for the grouping function
+        # This represents the tracks we know exist in Navidrome
+        found_navidrome_tracks = []
+        for (normalized_artist, title), track_id in search_results.items():
+            if track_id:  # Only tracks that were found
+                found_navidrome_tracks.append({
+                    'id': track_id,
+                    'artist': normalized_artist,
+                    'title': title
+                })
+        
+        # Generate missing tracks analysis (tracks in Last.fm but not found in search)
+        missing_scrobbles_grouped, missing_loved_grouped = group_missing_by_artist_album(all_aggregated, found_navidrome_tracks)
+        
+        with open(MISSING_SCROBBLES, "w", encoding="utf-8") as f:
+            json.dump(missing_scrobbles_grouped, f, indent=2, ensure_ascii=False)
+        print(f"✅ Missing scrobbles saved to {MISSING_SCROBBLES}")
+        with open(MISSING_LOVED, "w", encoding="utf-8") as f:
+            json.dump(missing_loved_grouped, f, indent=2, ensure_ascii=False)
+        print(f"✅ Missing loved tracks saved to {MISSING_LOVED}")
+        print(f"ℹ️  Analysis based on {len(found_navidrome_tracks)} tracks found during sync search\n")
+        
         # Step 2: Check current play counts for found tracks
         tracks_needing_sync = []
         tracks_already_synced = 0
@@ -450,6 +479,7 @@ def main_database_mode():
 
     print(f"\n✅ Processing complete! Found {tracks_with_scrobbles:,} tracks with Last.fm scrobbles.\n")
 
+    print("💾 Generating missing tracks analysis from search results...")
     missing_scrobbles_grouped, missing_loved_grouped = group_missing_by_artist_album(aggregated_scrobbles, tracks)
     with open(MISSING_SCROBBLES, "w", encoding="utf-8") as f:
         json.dump(missing_scrobbles_grouped, f, indent=2, ensure_ascii=False)
