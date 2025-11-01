@@ -1,6 +1,6 @@
 # NaviSync
 
-Sync your Last.fm play counts and loved tracks to Navidrome with intelligent caching and two sync modes.
+Sync your Last.fm play counts and loved tracks to Navidrome with intelligent caching.
 
 ## Quick Start
 
