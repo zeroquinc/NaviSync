@@ -8,13 +8,9 @@ load_dotenv()
 # Project root (main.py folder)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# API Mode Configuration
-NAVIDROME_URL = os.getenv("NAVIDROME_URL")  # Required for API mode: e.g., "http://localhost:4533"
-NAVIDROME_USER = os.getenv("NAVIDROME_USER")  # Required for API mode
-NAVIDROME_PASSWORD = os.getenv("NAVIDROME_PASSWORD")  # Required for API mode
-
-# Database Mode Configuration (optional - only needed for database mode)
-NAVIDROME_DB_PATH = os.getenv("NAVIDROME_DB_PATH")  # Optional: for database mode only
+# Database Mode Configuration
+NAVIDROME_DB_PATH = os.getenv("NAVIDROME_DB_PATH")
+NAVIDROME_URL = os.getenv("NAVIDROME_URL")
 
 # Last.fm Configuration
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
@@ -69,10 +65,6 @@ def validate_config():
     # API mode requires connection details
     if not NAVIDROME_URL:
         missing.append("NAVIDROME_URL")
-    if not NAVIDROME_USER:
-        missing.append("NAVIDROME_USER")
-    if not NAVIDROME_PASSWORD:
-        missing.append("NAVIDROME_PASSWORD")
     
     if missing:
         print(f"❌ Error: Missing required environment variables in .env file:")

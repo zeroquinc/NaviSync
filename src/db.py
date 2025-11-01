@@ -2,6 +2,7 @@ import sqlite3
 import os
 import time
 from datetime import datetime, timezone
+import requests
 
 def is_database_locked(db_path, timeout=1):
     """
@@ -48,7 +49,7 @@ def is_database_recently_modified(db_path, seconds=5):
     except (OSError, FileNotFoundError):
         return False
 
-def check_navidrome_active(db_path, check_lock=True, check_mtime=True, navidrome_api_url=None):
+def check_navidrome_active(db_path, check_lock=True, check_mtime=True, navidrome_url=None):
     """
     Comprehensive check if Navidrome is actively using the database.
     
@@ -58,21 +59,17 @@ def check_navidrome_active(db_path, check_lock=True, check_mtime=True, navidrome
         db_path: Path to Navidrome database
         check_lock: Check if database file is locked
         check_mtime: Check if database was recently modified
-        navidrome_api_url: Optional Navidrome API endpoint to ping
+        navidrome_url: Optional Navidrome endpoint to ping
     
     Returns:
         (is_active, reason) - tuple of (bool, str)
     """
-    import requests
-    
-    reasons = []
-    
-    # Check API first (fastest indicator)
-    if navidrome_api_url:
+
+    if navidrome_url:
         try:
-            response = requests.get(navidrome_api_url, timeout=3)
+            response = requests.get(navidrome_url, timeout=3)
             if response.status_code == 200:
-                return True, "Navidrome API is responding - server is active"
+                return True, "Navidrome is responding - server is active"
         except (requests.ConnectionError, requests.Timeout):
             pass
         except Exception:

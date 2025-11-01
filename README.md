@@ -25,24 +25,11 @@ Sync your Last.fm play counts and loved tracks to Navidrome with intelligent cac
 
 3. **Run:** `python main.py`
 
-## Sync Modes
-
-**API Mode (Recommended)**
-- Safe - Navidrome stays running
-- Uses official Subsonic API
-- Good for most users
-
-**Database Mode** 
-- Faster for large libraries
-- Requires stopping Navidrome
-- Direct database access
-
 ## Features
 
 - **Keep your play counts in sync** - Never lose track of your listening history by updating Navidrome play counts
 - **Sync your loved tracks** - Last.fm hearts become Navidrome stars  
 - **Fast after first run** - Only processes new plays, not your entire history
-- **Choose your approach** - Safe API mode or fast database mode
 
 ## Configuration Options
 
@@ -53,8 +40,7 @@ SCROBBLED_FIRSTARTISTONLY=True
 FIRST_ARTIST_WHITELIST=["Simon & Garfunkel", "AC/DC"]  # Keep these exact
 ```
 
-### Database Mode Conflict Resolution
-This only works in database mode, as we cant decrease plays via the API.
+### Conflict Resolution
 
 ```env
 PLAYCOUNT_CONFLICT_RESOLUTION=ask  # Options: ask, navidrome, lastfm, higher, increment
