@@ -13,14 +13,15 @@ Sync your Last.fm play counts and loved tracks to Navidrome with intelligent cac
 
 2. **Configure:** Copy `env.example` to `.env` and fill in your details:
    ```env
-   # Navidrome connection
-   NAVIDROME_URL=http://localhost:4533
-   NAVIDROME_USER=your_username
-   NAVIDROME_PASSWORD=your_password
-   
-   # Last.fm credentials
-   LASTFM_API_KEY=your_api_key
-   LASTFM_USER=your_username
+      NAVIDROME_DB_PATH=Z:/navidrome/navidrome.db
+      NAVIDROME_URL=http://192.168.0.50:4533
+
+      LASTFM_API_KEY=lastfmapikey
+      LASTFM_USER=Username
+
+      SCROBBLED_FIRSTARTISTONLY=True
+      FIRST_ARTIST_WHITELIST=["Suzan & Freek", "Simon & Garfunkel", "AC/DC"]
+      PLAYCOUNT_CONFLICT_RESOLUTION=ask
    ```
 
 3. **Run:** `python main.py`
