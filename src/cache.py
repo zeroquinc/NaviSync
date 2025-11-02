@@ -59,6 +59,33 @@ class ScrobbleCache:
             )
         """)
         
+        # Table for fuzzy match mappings (Navidrome -> Last.fm)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS fuzzy_match_mappings (
+                navidrome_track_id TEXT NOT NULL,
+                navidrome_artist TEXT NOT NULL,
+                navidrome_track TEXT NOT NULL,
+                lastfm_artist TEXT NOT NULL,
+                lastfm_track TEXT NOT NULL,
+                matched_timestamp INTEGER NOT NULL,
+                PRIMARY KEY (navidrome_track_id)
+            )
+        """)
+        
+        # Table for tracking skipped Navidrome tracks (so we don't ask again)
+        # We store the Last.fm tracks that were checked when skipping
+        # so we can re-prompt if new Last.fm tracks appear later
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS skipped_tracks (
+                navidrome_track_id TEXT NOT NULL,
+                navidrome_artist TEXT NOT NULL,
+                navidrome_track TEXT NOT NULL,
+                checked_lastfm_tracks TEXT NOT NULL,
+                skipped_timestamp INTEGER NOT NULL,
+                PRIMARY KEY (navidrome_track_id)
+            )
+        """)
+        
         conn.commit()
         conn.close()
 
@@ -280,3 +307,151 @@ class ScrobbleCache:
         cursor.execute("UPDATE scrobbles SET synced = 0")
         conn.commit()
         conn.close()
+
+    def get_fuzzy_match_for_navidrome_track(self, navidrome_track_id):
+        """Get a previously saved fuzzy match for a Navidrome track.
+        
+        Args:
+            navidrome_track_id: The Navidrome track ID
+            
+        Returns:
+            Dict with Last.fm track info {'artist', 'track'}, or None if no mapping exists
+        """
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT lastfm_artist, lastfm_track
+            FROM fuzzy_match_mappings
+            WHERE navidrome_track_id = ?
+        """, (navidrome_track_id,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                'artist': result[0],
+                'track': result[1]
+            }
+        return None
+
+    def get_skipped_track_info(self, navidrome_track_id):
+        """Get information about a previously skipped track.
+        
+        Args:
+            navidrome_track_id: The Navidrome track ID
+            
+        Returns:
+            Dict with 'checked_lastfm_tracks' (list of Last.fm track keys), or None if not skipped
+        """
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT checked_lastfm_tracks FROM skipped_tracks
+            WHERE navidrome_track_id = ?
+        """, (navidrome_track_id,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            import json
+            return {
+                'checked_lastfm_tracks': json.loads(result[0])
+            }
+        return None
+
+    def save_fuzzy_match(self, navidrome_track, lastfm_artist, lastfm_track):
+        """Save a fuzzy match mapping for future runs.
+        
+        Args:
+            navidrome_track: Navidrome track dict with 'id', 'artist', 'title'
+            lastfm_artist: Artist name from Last.fm
+            lastfm_track: Track name from Last.fm
+        """
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        
+        timestamp = int(datetime.now(timezone.utc).timestamp())
+        
+        # Remove from skipped tracks if it was there
+        cursor.execute("DELETE FROM skipped_tracks WHERE navidrome_track_id = ?", 
+                      (navidrome_track['id'],))
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO fuzzy_match_mappings 
+            (navidrome_track_id, navidrome_artist, navidrome_track, lastfm_artist, lastfm_track, matched_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            navidrome_track['id'],
+            navidrome_track['artist'],
+            navidrome_track['title'],
+            lastfm_artist, 
+            lastfm_track,
+            timestamp
+        ))
+        
+        conn.commit()
+        conn.close()
+
+    def save_skipped_track(self, navidrome_track, checked_lastfm_tracks):
+        """Mark a Navidrome track as skipped with the Last.fm tracks that were checked.
+        
+        Args:
+            navidrome_track: Navidrome track dict with 'id', 'artist', 'title'
+            checked_lastfm_tracks: List of Last.fm track keys (tuples of artist/track) that were checked
+        """
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        
+        timestamp = int(datetime.now(timezone.utc).timestamp())
+        
+        import json
+        checked_json = json.dumps(checked_lastfm_tracks)
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO skipped_tracks 
+            (navidrome_track_id, navidrome_artist, navidrome_track, checked_lastfm_tracks, skipped_timestamp)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            navidrome_track['id'],
+            navidrome_track['artist'],
+            navidrome_track['title'],
+            checked_json,
+            timestamp
+        ))
+        
+        conn.commit()
+        conn.close()
+
+    def get_all_fuzzy_matches(self):
+        """Get all saved fuzzy match mappings."""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT navidrome_artist, navidrome_track, lastfm_artist, lastfm_track, matched_timestamp
+            FROM fuzzy_match_mappings
+            ORDER BY matched_timestamp DESC
+        """)
+        
+        mappings = []
+        for row in cursor.fetchall():
+            mappings.append({
+                'navidrome_artist': row[0],
+                'navidrome_track': row[1],
+                'lastfm_artist': row[2],
+                'lastfm_track': row[3],
+                'matched_timestamp': row[4]
+            })
+        
+        conn.close()
+        return mappings
+        for row in cursor.fetchall():
+            mappings.append({
+                'lastfm_artist': row[0],
+                'lastfm_track': row[1],
+                'navidrome_artist': row[2],
+                'navidrome_track': row[3],
+                'matched_timestamp': row[4]
+            })
+        
+        conn.close()
+        return mappings

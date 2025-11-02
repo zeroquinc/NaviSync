@@ -36,14 +36,35 @@ def first_artist(artist):
     return sep_pattern.split(artist_clean)[0].strip()
 
 def make_key(artist, title):
-    """Create a normalized key for matching artist/title combinations."""
+    """Create a normalized key for matching artist/title combinations.
+    
+    This applies first_artist() logic to Last.fm data only.
+    Use make_key_lastfm() for Last.fm scrobbles.
+    Use make_key_navidrome() for Navidrome tracks.
+    """
+    return (normalize(first_artist(artist)), normalize(title))
+
+def make_key_lastfm(artist, title):
+    """Create a normalized key for Last.fm scrobbles.
+    
+    Does NOT apply first_artist() logic - preserves full artist name from Last.fm.
+    """
+    return (normalize(artist), normalize(title))
+
+def make_key_navidrome(artist, title):
+    """Create a normalized key for Navidrome tracks.
+    
+    Applies first_artist() logic if SCROBBLED_FIRSTARTISTONLY=True.
+    This normalizes Navidrome collaborations (e.g., "2Pac feat Damascus" → "2Pac")
+    to match Last.fm scrobbles where user only scrobbles first artist.
+    """
     return (normalize(first_artist(artist)), normalize(title))
 
 def aggregate_scrobbles(scrobbles):
     """Aggregate scrobbles by artist/track key with timestamps and loved status."""
     aggregated = {}
     for s in scrobbles:
-        key = make_key(s['artist'], s['track'])
+        key = make_key_lastfm(s['artist'], s['track'])
         aggregated.setdefault(key, {
             'timestamps': [],
             'loved': False,
@@ -58,7 +79,7 @@ def aggregate_scrobbles(scrobbles):
 
 def group_missing_by_artist_album(aggregated_scrobbles, tracks):
     """Group scrobbles that are missing from Navidrome by artist and album."""
-    nav_keys = set(make_key(t['artist'], t['title']) for t in tracks)
+    nav_keys = set(make_key_navidrome(t['artist'], t['title']) for t in tracks)
 
     missing_scrobbles = {}
     missing_loved = {}

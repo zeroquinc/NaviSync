@@ -26,11 +26,19 @@ Sync your Last.fm play counts and loved tracks to Navidrome with intelligent cac
 
 3. **Run:** `python main.py`
 
+4. It is important to delete the cache and json folders when updating from this repo, as they may contain some changes.
+
 ## Features
 
 - **Keep your play counts in sync** - Never lose track of your listening history by updating Navidrome play counts
 - **Sync your loved tracks** - Last.fm hearts become Navidrome stars  
 - **Fast after first run** - Only processes new plays, not your entire history
+- **Intelligent fuzzy matching** - Finds potential matches for track name variations:
+  - Handles `&` vs `and`, special characters, accents, and minor differences
+  - **Always prompts you to confirm** - no automatic matching to prevent errors
+  - Shows similarity scores to help you decide
+  - **Remembers your choices** - confirmed matches are saved and used automatically in future runs
+  - You have full control over which tracks get matched
 
 ## Configuration Options
 
@@ -58,7 +66,11 @@ PLAYCOUNT_CONFLICT_RESOLUTION=ask  # Options: ask, navidrome, lastfm, higher, in
 
 View cache status: `python cache_info.py --info`
 
+View fuzzy match mappings: `python cache_info.py --fuzzy`
+
 Reset sync status: `python cache_info.py --reset`
+
+**Fuzzy Match Mappings:** Once you confirm a fuzzy match (e.g., "The Great Hall and The Prophecy" → "The Great Hall & The Prophecy"), it's saved in the cache. Future runs will automatically use this mapping without prompting you again.
 
 ## Troubleshooting
 

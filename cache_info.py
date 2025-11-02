@@ -27,6 +27,12 @@ def print_cache_info():
     
     print(f"\n❤️  Loved tracks: {stats['loved_tracks']:,}")
     
+    # Show fuzzy match mappings
+    fuzzy_matches = cache.get_all_fuzzy_matches()
+    if fuzzy_matches:
+        print(f"\n🔍 Fuzzy match mappings: {len(fuzzy_matches):,}")
+        print("  (These are remembered track matches between Last.fm and Navidrome)")
+    
     print(f"\n📅 Date range:")
     print(f"  Oldest scrobble: {stats['oldest_scrobble']}")
     print(f"  Newest scrobble: {stats['newest_scrobble']}")
@@ -52,22 +58,46 @@ def reset_sync_status():
     else:
         print("❌ Cancelled.\n")
 
+def show_fuzzy_matches():
+    """Display all saved fuzzy match mappings."""
+    cache = ScrobbleCache(CACHE_DB_PATH)
+    mappings = cache.get_all_fuzzy_matches()
+    
+    if not mappings:
+        print("\n📭 No fuzzy match mappings saved yet.\n")
+        return
+    
+    print(f"\n🔍 Fuzzy Match Mappings ({len(mappings)} total)")
+    print("=" * 60)
+    print("\nThese are tracks that were manually matched and will be")
+    print("automatically matched in future runs:\n")
+    
+    for i, m in enumerate(mappings, 1):
+        print(f"{i}. Navidrome: {m['navidrome_artist']} - {m['navidrome_track']}")
+        print(f"   → Last.fm: {m['lastfm_artist']} - {m['lastfm_track']}\n")
+    
+    print("=" * 60)
+    print()
+
 def show_menu():
     """Display interactive menu."""
     print("\nNaviSync Cache Management")
     print("=" * 60)
     print("1. View cache statistics")
-    print("2. Reset sync status (force full re-sync)")
-    print("3. Exit")
+    print("2. View fuzzy match mappings")
+    print("3. Reset sync status (force full re-sync)")
+    print("4. Exit")
     print("=" * 60)
     
-    choice = input("\nSelect an option [1-3]: ").strip()
+    choice = input("\nSelect an option [1-4]: ").strip()
     
     if choice == '1':
         print_cache_info()
     elif choice == '2':
-        reset_sync_status()
+        show_fuzzy_matches()
     elif choice == '3':
+        reset_sync_status()
+    elif choice == '4':
         print("Goodbye!\n")
         sys.exit(0)
     else:
@@ -79,10 +109,13 @@ if __name__ == "__main__":
             print_cache_info()
         elif sys.argv[1] in ['--reset', '-r']:
             reset_sync_status()
+        elif sys.argv[1] in ['--fuzzy', '-f']:
+            show_fuzzy_matches()
         else:
             print("Usage:")
             print("  python cache_info.py           - Interactive menu")
             print("  python cache_info.py --info    - Show cache statistics")
+            print("  python cache_info.py --fuzzy   - Show fuzzy match mappings")
             print("  python cache_info.py --reset   - Reset sync status")
     else:
         # Interactive mode

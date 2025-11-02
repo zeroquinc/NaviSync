@@ -14,12 +14,13 @@ from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
                        MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks
-from src.utils import make_key, aggregate_scrobbles, group_missing_by_artist_album
+from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
 from src.db import (get_navidrome_user_id, get_all_tracks, 
                    get_annotation_playcount_starred, update_annotation, 
                    check_navidrome_active, update_artist_play_counts, 
                    update_album_play_counts)
+from src.matcher import get_lastfm_match_for_navidrome_track
 
 def print_header():
     print("\n NaviSync - Database Sync")
@@ -101,48 +102,58 @@ def connect_db(db_path):
         return None
 
 
-def compute_differences(conn, tracks, aggregated_scrobbles, user_id):
+def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     differences = []
-    total = len(tracks)
+    total_tracks = len(tracks)
     tracks_with_scrobbles = 0
 
-    print(f"\n🔍 Comparing {total:,} tracks with Last.fm data...\n")
+    print(f"\n🔍 Matching {total_tracks:,} Navidrome tracks with Last.fm scrobbles...\n")
 
-    for i, t in enumerate(tracks, 1):
-        track_id = t['id']
-        artist = t['artist']
-        title = t['title']
-        key = make_key(artist, title)
-        agg = aggregated_scrobbles.get(key, {'timestamps': [], 'loved': False})
+    # Process Navidrome tracks and find Last.fm matches
+    for i, nav_track in enumerate(tracks, 1):
+        if i % 100 == 0 or i == total_tracks:
+            percentage = (i / total_tracks) * 100
+            print(f"[{i:,}/{total_tracks:,}] ({percentage:.1f}%) Processing tracks...", end='\r')
 
-        # Show progress indicator
-        if i % 100 == 0 or i == total:
-            percentage = (i / total) * 100
-            print(f"[{i:,}/{total:,}] ({percentage:.1f}%) Processing tracks...", end='\r')
+        # Try to find a Last.fm match for this Navidrome track
+        scrobble_info = get_lastfm_match_for_navidrome_track(
+            navidrome_track=nav_track,
+            aggregated_scrobbles=aggregated_scrobbles,
+            cache=cache,
+            fuzzy_threshold=85
+        )
 
+        if not scrobble_info:
+            continue  # No match found or was skipped
+
+        tracks_with_scrobbles += 1
+        
+        track_id = nav_track['id']
         nav_count, nav_starred, nav_played_ts = get_annotation_playcount_starred(conn, track_id, user_id)
-        track_scrobbles = agg['timestamps']
+        
+        track_scrobbles = scrobble_info['timestamps']
         lastfm_count = len(track_scrobbles)
         last_played = max(track_scrobbles) if track_scrobbles else None
-        loved = agg['loved']
-
-        if lastfm_count > 0:
-            tracks_with_scrobbles += 1
+        loved = scrobble_info['loved']
 
         if lastfm_count != nav_count or (loved and not nav_starred):
             differences.append({
                 'id': track_id,
-                'artist': artist,
-                'title': title,
+                'artist': nav_track['artist'],
+                'title': nav_track['title'],
                 'navidrome': nav_count,
                 'nav_starred': nav_starred,
                 'lastfm': lastfm_count,
                 'nav_played': nav_played_ts,
                 'last_played': last_played,
-                'loved': loved
+                'loved': loved,
+                'lastfm_artist': scrobble_info['artist_orig'],
+                'lastfm_track': scrobble_info['track_orig']
             })
 
-    print(f"\n✅ Processing complete! Found {tracks_with_scrobbles:,} tracks with Last.fm scrobbles.\n")
+    print(f"\n✅ Processing complete!")
+    print(f"   Matched tracks: {tracks_with_scrobbles:,}")
+    print()
     return differences
 
 
@@ -249,8 +260,10 @@ def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
 
         update_annotation(conn, d['id'], new_count, d['last_played'], d['loved'], user_id)
 
-        # Mark this track as synced in cache
-        cache.mark_scrobbles_synced(artist, title)
+        # Mark this track as synced in cache using original Last.fm names
+        lastfm_artist = d.get('lastfm_artist', d['artist'])
+        lastfm_track = d.get('lastfm_track', d['title'])
+        cache.mark_scrobbles_synced(lastfm_artist, lastfm_track)
 
         # Log concise summary
         if new_count != nav:
@@ -318,7 +331,7 @@ def main():
         return
 
     try:
-        differences = compute_differences(conn, tracks, aggregated_scrobbles, user_id)
+        differences = compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache)
         write_missing_reports(aggregated_scrobbles, tracks)
         if differences:
             apply_updates(conn, cache, differences, user_id)
