@@ -77,35 +77,57 @@ def aggregate_scrobbles(scrobbles):
             aggregated[key]['loved'] = True
     return aggregated
 
-def group_missing_by_artist_album(aggregated_scrobbles, tracks):
-    """Group scrobbles that are missing from Navidrome by artist and album."""
+def group_missing_by_artist_album(aggregated_scrobbles, tracks, cache):
+    """Group scrobbles that are missing from Navidrome by artist and album.
+    
+    Args:
+        aggregated_scrobbles: Dict of Last.fm scrobbles aggregated by artist/track
+        tracks: List of Navidrome tracks
+        cache: ScrobbleCache instance to check for fuzzy match mappings
+    
+    Returns:
+        Tuple of (missing_scrobbles_grouped, missing_loved_grouped)
+    """
     nav_keys = set(make_key_navidrome(t['artist'], t['title']) for t in tracks)
+    
+    # Get all fuzzy match mappings to check if Last.fm tracks are matched
+    fuzzy_matches = cache.get_all_fuzzy_matches()
+    
+    # Build a set of Last.fm keys that have been fuzzy-matched to Navidrome tracks
+    # Format: (normalized_lastfm_artist, normalized_lastfm_track)
+    fuzzy_matched_lastfm_keys = set()
+    for match in fuzzy_matches:
+        lastfm_key = make_key_lastfm(match['lastfm_artist'], match['lastfm_track'])
+        fuzzy_matched_lastfm_keys.add(lastfm_key)
 
     missing_scrobbles = {}
     missing_loved = {}
 
     for key, info in aggregated_scrobbles.items():
-        if key not in nav_keys:
-            artist = info['artist_orig']
-            track = info['track_orig']
-            album = info['album_orig'] or ""
-            scrobble_count = len(info['timestamps'])
-            last_played_ts = max(info['timestamps'])
-            last_played_str = datetime.fromtimestamp(
-                last_played_ts, timezone.utc
-            ).strftime("%Y-%m-%d %H:%M:%S")
+        # Skip if track exists in Navidrome (exact match) OR has been fuzzy-matched
+        if key in nav_keys or key in fuzzy_matched_lastfm_keys:
+            continue
+            
+        artist = info['artist_orig']
+        track = info['track_orig']
+        album = info['album_orig'] or ""
+        scrobble_count = len(info['timestamps'])
+        last_played_ts = max(info['timestamps'])
+        last_played_str = datetime.fromtimestamp(
+            last_played_ts, timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
-            track_entry = {
-                "track": track,
-                "scrobbled": scrobble_count,
-                "loved": info["loved"],
-                "lastplayed": last_played_str,
-            }
+        track_entry = {
+            "track": track,
+            "scrobbled": scrobble_count,
+            "loved": info["loved"],
+            "lastplayed": last_played_str,
+        }
 
-            missing_scrobbles.setdefault(artist, {}).setdefault(album, []).append(track_entry)
+        missing_scrobbles.setdefault(artist, {}).setdefault(album, []).append(track_entry)
 
-            if info["loved"]:
-                missing_loved.setdefault(artist, {}).setdefault(album, []).append(track_entry)
+        if info["loved"]:
+            missing_loved.setdefault(artist, {}).setdefault(album, []).append(track_entry)
 
     # Sort by artist name alphabetically, and albums within each artist
     missing_scrobbles = {artist: dict(sorted(albums.items())) 

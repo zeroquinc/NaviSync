@@ -157,9 +157,9 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     return differences
 
 
-def write_missing_reports(aggregated_scrobbles, tracks):
+def write_missing_reports(aggregated_scrobbles, tracks, cache):
     print("💾 Generating missing tracks analysis from search results...")
-    missing_scrobbles_grouped, missing_loved_grouped = group_missing_by_artist_album(aggregated_scrobbles, tracks)
+    missing_scrobbles_grouped, missing_loved_grouped = group_missing_by_artist_album(aggregated_scrobbles, tracks, cache)
     with open(MISSING_SCROBBLES, "w", encoding="utf-8") as f:
         json.dump(missing_scrobbles_grouped, f, indent=2, ensure_ascii=False)
     print(f"✅ Missing from scrobbles saved to {MISSING_SCROBBLES}")
@@ -332,7 +332,7 @@ def main():
 
     try:
         differences = compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache)
-        write_missing_reports(aggregated_scrobbles, tracks)
+        write_missing_reports(aggregated_scrobbles, tracks, cache)
         if differences:
             apply_updates(conn, cache, differences, user_id)
         else:
