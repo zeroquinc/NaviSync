@@ -12,8 +12,8 @@ import json
 import time
 from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
-                       MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION)
-from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks
+                       MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM)
+from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track, unlove_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
 from src.db import (get_navidrome_user_id, get_all_tracks, 
@@ -102,14 +102,65 @@ def connect_db(db_path):
         return None
 
 
+def prompt_user_for_duplicate_selection(duplicates):
+    """
+    Prompt user to select which album version(s) should receive the play count.
+    
+    Args:
+        duplicates: List of dicts with Navidrome track info including 'id', 'album', 'artist', 'title'
+    
+    Returns:
+        List of selected track IDs, or None if user wants to skip all
+    """
+    print(f"\n⚠️  Multiple versions of the same track found in Navidrome:")
+    print(f"   Track: {duplicates[0]['artist']} - {duplicates[0]['title']}")
+    print(f"\n   Found in {len(duplicates)} different location(s):")
+    
+    for idx, dup in enumerate(duplicates, 1):
+        album_info = dup['album'] if dup['album'] else "(No Album)"
+        print(f"   [{idx}] {album_info}")
+    
+    print(f"   [A] Apply to ALL versions")
+    print(f"   [0] Skip all versions")
+    
+    while True:
+        choice = input(f"\n   → Select which version(s) to update [1-{len(duplicates)}/A/0]: ").strip().upper()
+        
+        if choice == '0':
+            print(f"   ⏭️  Skipped all versions")
+            return None
+        
+        if choice == 'A':
+            print(f"   ✅ Will update ALL versions")
+            return [dup['id'] for dup in duplicates]
+        
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(duplicates):
+                selected = duplicates[idx - 1]
+                album_name = selected['album'] if selected['album'] else "(No Album)"
+                print(f"   ✅ Selected: {album_name}")
+                return [selected['id']]
+        except ValueError:
+            pass
+        
+        print(f"   ⚠️  Invalid choice. Please enter a number between 1-{len(duplicates)}, A, or 0")
+
+
 def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     differences = []
+    navidrome_stars_to_sync = []  # Track Navidrome stars to sync TO Last.fm
     total_tracks = len(tracks)
     tracks_with_scrobbles = 0
+    
+    # Track potential duplicates: key = (lastfm_artist, lastfm_track), value = list of nav tracks
+    potential_duplicates = {}
 
     print(f"\n🔍 Matching {total_tracks:,} Navidrome tracks with Last.fm scrobbles...\n")
 
-    # Process Navidrome tracks and find Last.fm matches
+    # Phase 1: Process all Navidrome tracks and find Last.fm matches
+    track_matches = []  # Store all matches for later processing
+    
     for i, nav_track in enumerate(tracks, 1):
         if i % 100 == 0 or i == total_tracks:
             percentage = (i / total_tracks) * 100
@@ -128,33 +179,113 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
 
         tracks_with_scrobbles += 1
         
-        track_id = nav_track['id']
-        nav_count, nav_starred, nav_played_ts = get_annotation_playcount_starred(conn, track_id, user_id)
+        # Store the match for later processing
+        track_matches.append({
+            'nav_track': nav_track,
+            'scrobble_info': scrobble_info
+        })
         
-        track_scrobbles = scrobble_info['timestamps']
-        lastfm_count = len(track_scrobbles)
-        last_played = max(track_scrobbles) if track_scrobbles else None
-        loved = scrobble_info['loved']
+        # Track duplicates by Last.fm artist/track key
+        lastfm_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'])
+        if lastfm_key not in potential_duplicates:
+            potential_duplicates[lastfm_key] = []
+        potential_duplicates[lastfm_key].append(nav_track)
+    
+    print(f"\n✅ Matching complete!")
+    print(f"   Matched tracks: {tracks_with_scrobbles:,}\n")
+    
+    # Phase 2: Handle duplicates and create differences list
+    processed_lastfm_keys = set()
+    
+    for match_info in track_matches:
+        nav_track = match_info['nav_track']
+        scrobble_info = match_info['scrobble_info']
+        
+        lastfm_artist = scrobble_info['artist_orig']
+        lastfm_track = scrobble_info['track_orig']
+        lastfm_key = (lastfm_artist, lastfm_track)
+        
+        # Skip if we've already processed this Last.fm track
+        if lastfm_key in processed_lastfm_keys:
+            continue
+        
+        processed_lastfm_keys.add(lastfm_key)
+        
+        # Check for duplicates
+        duplicates = potential_duplicates[lastfm_key]
+        selected_track_ids = None
+        
+        if len(duplicates) > 1:
+            # Multiple Navidrome tracks match the same Last.fm track
+            # Check if user has already made a selection for this Last.fm track
+            cached_selection = cache.get_duplicate_selection(lastfm_artist, lastfm_track)
+            
+            if cached_selection:
+                # Use cached selection, but verify tracks still exist
+                valid_ids = [t['id'] for t in duplicates]
+                selected_track_ids = [tid for tid in cached_selection if tid in valid_ids]
+                
+                if not selected_track_ids:
+                    # Cached selection no longer valid, prompt again
+                    selected_track_ids = prompt_user_for_duplicate_selection(duplicates)
+                    if selected_track_ids:
+                        cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
+            else:
+                # Prompt user to select which track(s) to update
+                selected_track_ids = prompt_user_for_duplicate_selection(duplicates)
+                if selected_track_ids:
+                    cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
+            
+            if not selected_track_ids:
+                # User chose to skip
+                continue
+        else:
+            # Only one track, use it
+            selected_track_ids = [duplicates[0]['id']]
+        
+        # Now process only the selected track(s)
+        for dup in duplicates:
+            if dup['id'] not in selected_track_ids:
+                continue
+                
+            track_id = dup['id']
+            nav_count, nav_starred, nav_played_ts = get_annotation_playcount_starred(conn, track_id, user_id)
+            
+            track_scrobbles = scrobble_info['timestamps']
+            lastfm_count = len(track_scrobbles)
+            last_played = max(track_scrobbles) if track_scrobbles else None
+            loved = scrobble_info['loved']
 
-        if lastfm_count != nav_count or (loved and not nav_starred):
-            differences.append({
-                'id': track_id,
-                'artist': nav_track['artist'],
-                'title': nav_track['title'],
-                'navidrome': nav_count,
-                'nav_starred': nav_starred,
-                'lastfm': lastfm_count,
-                'nav_played': nav_played_ts,
-                'last_played': last_played,
-                'loved': loved,
-                'lastfm_artist': scrobble_info['artist_orig'],
-                'lastfm_track': scrobble_info['track_orig']
-            })
+            # Check if Navidrome star needs to be synced TO Last.fm
+            if SYNC_LOVED_TO_LASTFM and nav_starred and not loved:
+                navidrome_stars_to_sync.append({
+                    'artist': scrobble_info['artist_orig'],
+                    'track': scrobble_info['track_orig'],
+                    'nav_artist': dup['artist'],
+                    'nav_track': dup['title']
+                })
+
+            if lastfm_count != nav_count or (loved and not nav_starred):
+                differences.append({
+                    'id': track_id,
+                    'artist': dup['artist'],
+                    'title': dup['title'],
+                    'album': dup['album'],
+                    'navidrome': nav_count,
+                    'nav_starred': nav_starred,
+                    'lastfm': lastfm_count,
+                    'nav_played': nav_played_ts,
+                    'last_played': last_played,
+                    'loved': loved,
+                    'lastfm_artist': scrobble_info['artist_orig'],
+                    'lastfm_track': scrobble_info['track_orig']
+                })
 
     print(f"\n✅ Processing complete!")
-    print(f"   Matched tracks: {tracks_with_scrobbles:,}")
+    if navidrome_stars_to_sync:
+        print(f"   Navidrome stars to sync to Last.fm: {len(navidrome_stars_to_sync)}")
     print()
-    return differences
+    return differences, navidrome_stars_to_sync
 
 
 def write_missing_reports(aggregated_scrobbles, tracks, cache):
@@ -225,7 +356,8 @@ def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
 
     for d in differences:
         diff_str = f"{d['lastfm'] - d['navidrome']:+d}"
-        print(f"  - {d['artist']} - {d['title']}")
+        album_info = f" [{d['album']}]" if d.get('album') else ""
+        print(f"  - {d['artist']} - {d['title']}{album_info}")
         print(f"    Navidrome: {d['navidrome']} | Last.fm: {d['lastfm']} | Diff: {diff_str} | Loved: {d['loved']}")
 
     if not prompt_yes_no("\nProceed with reviewing and updating these tracks? [y/N]: ", default=False):
@@ -307,6 +439,45 @@ def close_db(conn):
     time.sleep(2)
 
 
+def sync_stars_to_lastfm(navidrome_stars_to_sync):
+    """
+    Sync Navidrome starred tracks TO Last.fm as loved tracks.
+    
+    Args:
+        navidrome_stars_to_sync: List of dicts with 'artist', 'track', 'nav_artist', 'nav_track'
+    """
+    if not navidrome_stars_to_sync:
+        return
+    
+    print(f"\n💝 Syncing {len(navidrome_stars_to_sync)} Navidrome stars to Last.fm...")
+    print("   (Navidrome starred → Last.fm loved)\n")
+    
+    for track_info in navidrome_stars_to_sync:
+        print(f"  - {track_info['nav_artist']} - {track_info['nav_track']}")
+    
+    if not prompt_yes_no("\nProceed with syncing these tracks to Last.fm? [y/N]: ", default=False):
+        print("⏭️  Skipped syncing stars to Last.fm.")
+        return
+    
+    synced_count = 0
+    failed_count = 0
+    
+    for track_info in navidrome_stars_to_sync:
+        artist = track_info['artist']
+        track = track_info['track']
+        
+        if love_track(artist, track):
+            synced_count += 1
+            print(f"  ❤️  Loved on Last.fm: {track_info['nav_artist']} - {track_info['nav_track']}")
+            time.sleep(0.5)  # Rate limiting
+        else:
+            failed_count += 1
+    
+    print(f"\n✅ Synced {synced_count} stars to Last.fm")
+    if failed_count > 0:
+        print(f"⚠️  Failed to sync {failed_count} tracks")
+
+
 def main():
     """Main sync function using direct database access."""
     print_header()
@@ -331,8 +502,13 @@ def main():
         return
 
     try:
-        differences = compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache)
+        differences, navidrome_stars_to_sync = compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache)
         write_missing_reports(aggregated_scrobbles, tracks, cache)
+        
+        # Sync Navidrome stars TO Last.fm if enabled
+        if SYNC_LOVED_TO_LASTFM and navidrome_stars_to_sync:
+            sync_stars_to_lastfm(navidrome_stars_to_sync)
+        
         if differences:
             apply_updates(conn, cache, differences, user_id)
         else:

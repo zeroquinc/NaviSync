@@ -32,6 +32,7 @@ Sync your Last.fm play counts and loved tracks to Navidrome with intelligent cac
 
 - **Keep your play counts in sync** - Never lose track of your listening history by updating Navidrome play counts
 - **Sync your loved tracks** - Last.fm hearts become Navidrome stars  
+- **Reverse sync (optional)** - Sync Navidrome stars TO Last.fm as loved tracks (requires authentication)
 - **Fast after first run** - Only processes new plays, not your entire history
 - **Intelligent fuzzy matching** - Finds potential matches for track name variations:
   - Handles `&` vs `and`, special characters, accents, and minor differences
@@ -61,6 +62,38 @@ PLAYCOUNT_CONFLICT_RESOLUTION=ask  # Options: ask, navidrome, lastfm, higher, in
 - `lastfm` - Always use Last.fm
 - `higher` - Use whichever is higher
 - `increment` - Add counts together
+
+### Reverse Sync (Optional)
+
+Sync Navidrome starred tracks TO Last.fm as loved tracks:
+
+```env
+SYNC_LOVED_TO_LASTFM=True  # Default: False
+```
+
+**Setup (one-time):**
+
+1. Get your API Secret from [Last.fm API Account](https://www.last.fm/api/account/create)
+
+2. Add to `.env`:
+   ```env
+   LASTFM_API_SECRET=yourapisecret
+   ```
+
+3. Get session key (interactive):
+   ```bash
+   python -c "from src.lastfm import get_session_key; get_session_key()"
+   ```
+
+4. Follow the prompts, authorize in browser, then add the session key to `.env`:
+   ```env
+   LASTFM_SESSION_KEY=yoursessionkey
+   ```
+
+5. Enable reverse sync:
+   ```env
+   SYNC_LOVED_TO_LASTFM=True
+   ```
 
 ## Cache Management
 

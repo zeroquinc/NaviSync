@@ -1,7 +1,8 @@
 import requests
 import time
+import hashlib
 from tqdm import tqdm
-from .config import LASTFM_API_KEY, LASTFM_USER
+from .config import LASTFM_API_KEY, LASTFM_API_SECRET, LASTFM_SESSION_KEY, LASTFM_USER
 
 MAX_RETRIES = 5
 RETRY_DELAY = 5
@@ -190,3 +191,163 @@ def fetch_loved_tracks():
     
     print(f"✅ Fetched {len(loved_tracks)} loved tracks.\n")
     return loved_tracks
+
+
+def generate_api_signature(params, api_secret):
+    """
+    Generate API signature for authenticated Last.fm requests.
+    
+    Args:
+        params: Dict of parameters (excluding format and api_sig)
+        api_secret: Last.fm API secret
+    
+    Returns:
+        MD5 hash signature string
+    """
+    # Sort parameters alphabetically and concatenate
+    sorted_params = sorted(params.items())
+    signature_string = ''.join(f'{k}{v}' for k, v in sorted_params)
+    signature_string += api_secret
+    
+    # Return MD5 hash
+    return hashlib.md5(signature_string.encode('utf-8')).hexdigest()
+
+
+def get_session_key():
+    """
+    Interactive helper to obtain a Last.fm session key.
+    This only needs to be run once to get the session key for your .env file.
+    
+    Steps:
+    1. Get a token
+    2. User authorizes the token via browser
+    3. Exchange token for session key
+    """
+    if not LASTFM_API_KEY or not LASTFM_API_SECRET:
+        print("❌ Error: LASTFM_API_KEY and LASTFM_API_SECRET must be set in .env file")
+        return
+    
+    # Step 1: Get token
+    print("📝 Step 1: Getting authentication token...")
+    params = {
+        'method': 'auth.getToken',
+        'api_key': LASTFM_API_KEY
+    }
+    params['api_sig'] = generate_api_signature(params, LASTFM_API_SECRET)
+    params['format'] = 'json'
+    
+    response = requests.get('http://ws.audioscrobbler.com/2.0/', params=params)
+    data = response.json()
+    
+    if 'error' in data:
+        print(f"❌ Error getting token: {data.get('message')}")
+        return
+    
+    token = data['token']
+    print(f"✅ Token obtained: {token}")
+    
+    # Step 2: User authorization
+    auth_url = f"http://www.last.fm/api/auth/?api_key={LASTFM_API_KEY}&token={token}"
+    print(f"\n📝 Step 2: Authorize this application")
+    print(f"   Open this URL in your browser:")
+    print(f"   {auth_url}")
+    input("\n   Press Enter after you have authorized the application...")
+    
+    # Step 3: Get session key
+    print("\n📝 Step 3: Getting session key...")
+    params = {
+        'method': 'auth.getSession',
+        'api_key': LASTFM_API_KEY,
+        'token': token
+    }
+    params['api_sig'] = generate_api_signature(params, LASTFM_API_SECRET)
+    params['format'] = 'json'
+    
+    response = requests.get('http://ws.audioscrobbler.com/2.0/', params=params)
+    data = response.json()
+    
+    if 'error' in data:
+        print(f"❌ Error getting session: {data.get('message')}")
+        return
+    
+    session_key = data['session']['key']
+    print(f"\n✅ Session key obtained!")
+    print(f"\n   Add this to your .env file:")
+    print(f"   LASTFM_SESSION_KEY={session_key}")
+    return session_key
+
+
+def love_track(artist, track):
+    """
+    Mark a track as loved on Last.fm.
+    
+    Args:
+        artist: Artist name
+        track: Track name
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if not LASTFM_API_KEY or not LASTFM_API_SECRET or not LASTFM_SESSION_KEY:
+        return False
+    
+    params = {
+        'method': 'track.love',
+        'api_key': LASTFM_API_KEY,
+        'sk': LASTFM_SESSION_KEY,
+        'artist': artist,
+        'track': track
+    }
+    params['api_sig'] = generate_api_signature(params, LASTFM_API_SECRET)
+    params['format'] = 'json'
+    
+    try:
+        response = requests.post('http://ws.audioscrobbler.com/2.0/', data=params, timeout=10)
+        data = response.json()
+        
+        if 'error' in data:
+            print(f"  ⚠️  Failed to love track on Last.fm: {data.get('message')}")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"  ⚠️  Error loving track on Last.fm: {e}")
+        return False
+
+
+def unlove_track(artist, track):
+    """
+    Remove loved status from a track on Last.fm.
+    
+    Args:
+        artist: Artist name
+        track: Track name
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if not LASTFM_API_KEY or not LASTFM_API_SECRET or not LASTFM_SESSION_KEY:
+        return False
+    
+    params = {
+        'method': 'track.unlove',
+        'api_key': LASTFM_API_KEY,
+        'sk': LASTFM_SESSION_KEY,
+        'artist': artist,
+        'track': track
+    }
+    params['api_sig'] = generate_api_signature(params, LASTFM_API_SECRET)
+    params['format'] = 'json'
+    
+    try:
+        response = requests.post('http://ws.audioscrobbler.com/2.0/', data=params, timeout=10)
+        data = response.json()
+        
+        if 'error' in data:
+            print(f"  ⚠️  Failed to unlove track on Last.fm: {data.get('message')}")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"  ⚠️  Error unloving track on Last.fm: {e}")
+        return False

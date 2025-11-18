@@ -14,8 +14,15 @@ NAVIDROME_URL = os.getenv("NAVIDROME_URL")
 
 # Last.fm Configuration
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
+LASTFM_API_SECRET = os.getenv("LASTFM_API_SECRET")
+LASTFM_SESSION_KEY = os.getenv("LASTFM_SESSION_KEY")
 LASTFM_USER = os.getenv("LASTFM_USER")
 SCROBBLED_FIRSTARTISTONLY = os.getenv("SCROBBLED_FIRSTARTISTONLY", "True") == "True"
+
+# Sync Configuration
+# Enable syncing Navidrome starred tracks TO Last.fm as loved tracks
+# Requires LASTFM_API_SECRET and LASTFM_SESSION_KEY to be configured
+SYNC_LOVED_TO_LASTFM = os.getenv("SYNC_LOVED_TO_LASTFM", "False") == "True"
 
 # Playcount conflict resolution strategy (for database mode)
 # Options: "ask", "navidrome", "lastfm", "higher", "increment"
@@ -65,6 +72,13 @@ def validate_config():
     # API mode requires connection details
     if not NAVIDROME_URL:
         missing.append("NAVIDROME_URL")
+    
+    # Check if reverse sync is enabled but authentication is missing
+    if SYNC_LOVED_TO_LASTFM:
+        if not LASTFM_API_SECRET:
+            missing.append("LASTFM_API_SECRET (required when SYNC_LOVED_TO_LASTFM=True)")
+        if not LASTFM_SESSION_KEY:
+            missing.append("LASTFM_SESSION_KEY (required when SYNC_LOVED_TO_LASTFM=True)")
     
     if missing:
         print(f"❌ Error: Missing required environment variables in .env file:")

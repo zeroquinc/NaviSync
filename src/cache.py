@@ -86,6 +86,19 @@ class ScrobbleCache:
             )
         """)
         
+        # Table for storing duplicate track selections
+        # When multiple Navidrome tracks (same artist/title, different albums) match
+        # the same Last.fm track, we store which track ID(s) the user selected
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS duplicate_track_selections (
+                lastfm_artist TEXT NOT NULL,
+                lastfm_track TEXT NOT NULL,
+                selected_navidrome_track_ids TEXT NOT NULL,
+                selection_timestamp INTEGER NOT NULL,
+                PRIMARY KEY (lastfm_artist, lastfm_track)
+            )
+        """)
+        
         conn.commit()
         conn.close()
 
@@ -388,6 +401,53 @@ class ScrobbleCache:
             lastfm_track,
             timestamp
         ))
+        
+        conn.commit()
+        conn.close()
+
+    def get_duplicate_selection(self, lastfm_artist, lastfm_track):
+        """Get previously saved selection for duplicate tracks.
+        
+        Args:
+            lastfm_artist: Last.fm artist name
+            lastfm_track: Last.fm track name
+            
+        Returns:
+            List of selected Navidrome track IDs, or None if no selection exists
+        """
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT selected_navidrome_track_ids FROM duplicate_track_selections
+            WHERE lastfm_artist = ? AND lastfm_track = ?
+        """, (lastfm_artist, lastfm_track))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            import json
+            return json.loads(result[0])
+        return None
+    
+    def save_duplicate_selection(self, lastfm_artist, lastfm_track, selected_track_ids):
+        """Save user's selection for duplicate tracks.
+        
+        Args:
+            lastfm_artist: Last.fm artist name
+            lastfm_track: Last.fm track name
+            selected_track_ids: List of Navidrome track IDs that should receive the play count
+        """
+        import json
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        
+        timestamp = int(datetime.now(timezone.utc).timestamp())
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO duplicate_track_selections
+            (lastfm_artist, lastfm_track, selected_navidrome_track_ids, selection_timestamp)
+            VALUES (?, ?, ?, ?)
+        """, (lastfm_artist, lastfm_track, json.dumps(selected_track_ids), timestamp))
         
         conn.commit()
         conn.close()
