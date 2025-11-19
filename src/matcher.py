@@ -138,7 +138,8 @@ def get_lastfm_match_for_navidrome_track(
     navidrome_track: Dict,
     aggregated_scrobbles: Dict,
     cache,
-    fuzzy_threshold: int = 85
+    fuzzy_threshold: int = 85,
+    enable_fuzzy: bool = True
 ) -> Optional[Dict]:
     """
     Get the best Last.fm match for a Navidrome track.
@@ -152,6 +153,7 @@ def get_lastfm_match_for_navidrome_track(
         aggregated_scrobbles: Dict of aggregated Last.fm scrobbles
         cache: ScrobbleCache instance
         fuzzy_threshold: Minimum score for fuzzy matching
+        enable_fuzzy: Enable fuzzy matching (default: True)
     
     Returns:
         Dict with Last.fm scrobble info, or None if no match
@@ -175,6 +177,10 @@ def get_lastfm_match_for_navidrome_track(
     exact_key = make_key_navidrome(navidrome_artist, navidrome_title)
     if exact_key in aggregated_scrobbles:
         return aggregated_scrobbles[exact_key]
+    
+    # Skip fuzzy matching if disabled
+    if not enable_fuzzy:
+        return None
     
     # Try fuzzy matching
     fuzzy_matches = find_fuzzy_matches_for_navidrome_track(

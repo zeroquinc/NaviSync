@@ -21,7 +21,9 @@ Sync your Last.fm play counts and loved tracks to Navidrome with intelligent cac
 
       SCROBBLED_FIRSTARTISTONLY=True
       FIRST_ARTIST_WHITELIST=["Suzan & Freek", "Simon & Garfunkel", "AC/DC"]
+      ENABLE_FUZZY_MATCHING=True
       PLAYCOUNT_CONFLICT_RESOLUTION=ask
+      SYNC_LOVED_TO_LASTFM=False
    ```
 
 3. **Run:** `python main.py`
@@ -49,6 +51,18 @@ Sync your Last.fm play counts and loved tracks to Navidrome with intelligent cac
 SCROBBLED_FIRSTARTISTONLY=True
 FIRST_ARTIST_WHITELIST=["Simon & Garfunkel", "AC/DC"]  # Keep these exact
 ```
+
+### Fuzzy Matching
+
+```env
+ENABLE_FUZZY_MATCHING=True  # Default: True
+```
+
+**Options:**
+- `True` - Enable fuzzy matching with prompts for similar tracks (recommended for accuracy)
+- `False` - Only exact matches, no prompts (faster but fewer matches)
+
+When enabled, the script intelligently finds potential matches for track name variations and prompts you to confirm. When disabled, only 100% exact matches are synced.
 
 ### Conflict Resolution
 

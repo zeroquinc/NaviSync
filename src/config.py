@@ -24,6 +24,12 @@ SCROBBLED_FIRSTARTISTONLY = os.getenv("SCROBBLED_FIRSTARTISTONLY", "True") == "T
 # Requires LASTFM_API_SECRET and LASTFM_SESSION_KEY to be configured
 SYNC_LOVED_TO_LASTFM = os.getenv("SYNC_LOVED_TO_LASTFM", "False") == "True"
 
+# Fuzzy matching configuration
+# Enable fuzzy matching for track names (default: True)
+# When False, only exact matches between Navidrome and Last.fm will be synced
+# When True, prompts user to confirm fuzzy matches
+ENABLE_FUZZY_MATCHING = os.getenv("ENABLE_FUZZY_MATCHING", "True") == "True"
+
 # Playcount conflict resolution strategy (for database mode)
 # Options: "ask", "navidrome", "lastfm", "higher", "increment"
 # - "ask": Prompt user for each conflict (default, interactive)

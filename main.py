@@ -12,7 +12,8 @@ import json
 import time
 from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
-                       MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM)
+                       MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
+                       ENABLE_FUZZY_MATCHING)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track, unlove_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
@@ -171,7 +172,8 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             navidrome_track=nav_track,
             aggregated_scrobbles=aggregated_scrobbles,
             cache=cache,
-            fuzzy_threshold=85
+            fuzzy_threshold=85,
+            enable_fuzzy=ENABLE_FUZZY_MATCHING
         )
 
         if not scrobble_info:
