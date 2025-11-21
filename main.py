@@ -117,9 +117,30 @@ def prompt_user_for_duplicate_selection(duplicates):
     print(f"   Track: {duplicates[0]['artist']} - {duplicates[0]['title']}")
     print(f"\n   Found in {len(duplicates)} different location(s):")
     
+    def format_duration(seconds):
+        """Format duration in seconds to MM:SS format."""
+        if not seconds or seconds <= 0:
+            return "--:--"
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes}:{secs:02d}"
+    
     for idx, dup in enumerate(duplicates, 1):
         album_info = dup['album'] if dup['album'] else "(No Album)"
-        print(f"   [{idx}] {album_info}")
+        
+        # Build additional info string
+        info_parts = []
+        if dup.get('track_number'):
+            track_str = f"Track {dup['track_number']}"
+            if dup.get('disc_number') and dup['disc_number'] > 1:
+                track_str = f"Disc {dup['disc_number']}, {track_str}"
+            info_parts.append(track_str)
+        
+        if dup.get('duration'):
+            info_parts.append(f"({format_duration(dup['duration'])})")
+        
+        additional_info = f" - {' '.join(info_parts)}" if info_parts else ""
+        print(f"   [{idx}] {album_info}{additional_info}")
     
     print(f"   [A] Apply to ALL versions")
     print(f"   [0] Skip all versions")
@@ -231,6 +252,9 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
         duplicates = potential_duplicates[processing_key]
         selected_track_ids = None
         
+        # Debug info for troubleshooting
+        # print(f"DEBUG: Mode={ALBUM_MATCHING_MODE}, Track={lastfm_artist}-{lastfm_track}, Duplicates={len(duplicates)}")
+        
         # Determine if we need to prompt based on mode and number of duplicates
         should_prompt = False
         if ALBUM_MATCHING_MODE == "album_aware":
@@ -249,8 +273,8 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             # In prompt mode, always prompt if there are multiple versions
             should_prompt = len(duplicates) > 1
         else:
-            # In album_agnostic mode, prompt for multiple versions
-            should_prompt = len(duplicates) > 1
+            # In album_agnostic mode, never prompt - always use all versions
+            should_prompt = False
         
         if should_prompt:
             # Multiple Navidrome tracks match the same Last.fm track
@@ -262,13 +286,16 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 valid_ids = [t['id'] for t in duplicates]
                 selected_track_ids = [tid for tid in cached_selection if tid in valid_ids]
                 
-                if not selected_track_ids:
+                if selected_track_ids:
+                    # Valid cached selection exists, use it silently
+                    pass
+                else:
                     # Cached selection no longer valid, prompt again
                     selected_track_ids = prompt_user_for_duplicate_selection(duplicates)
                     if selected_track_ids:
                         cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
             else:
-                # Prompt user to select which track(s) to update
+                # No cached selection, prompt user to select which track(s) to update
                 selected_track_ids = prompt_user_for_duplicate_selection(duplicates)
                 if selected_track_ids:
                     cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
@@ -277,8 +304,14 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 # User chose to skip
                 continue
         else:
-            # Only one track, use it (or in album_aware mode, each track gets its own count)
-            selected_track_ids = [duplicates[0]['id']]
+            # No prompting needed
+            if ALBUM_MATCHING_MODE == "album_agnostic" and len(duplicates) > 1:
+                # In album_agnostic mode, automatically select ALL tracks
+                selected_track_ids = [dup['id'] for dup in duplicates]
+                print(f"   📀 Album-agnostic: updating all {len(duplicates)} versions of '{lastfm_artist} - {lastfm_track}'")
+            else:
+                # Only one track, use it (or in album_aware mode, each track gets its own count)
+                selected_track_ids = [duplicates[0]['id']]
         
         # Now process only the selected track(s)
         for dup in duplicates:
