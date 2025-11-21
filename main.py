@@ -188,11 +188,19 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             'scrobble_info': scrobble_info
         })
         
-        # Track duplicates by Last.fm artist/track key
-        lastfm_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'])
-        if lastfm_key not in potential_duplicates:
-            potential_duplicates[lastfm_key] = []
-        potential_duplicates[lastfm_key].append(nav_track)
+        # Track potential duplicates using the same key structure as matching
+        # In album_aware mode, each album should be separate, so use full match key
+        if ALBUM_MATCHING_MODE == "album_aware":
+            # In album_aware mode, use the same key as the scrobble matching
+            # This ensures each album version is treated separately
+            duplicate_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'], scrobble_info.get('album_orig', ''))
+        else:
+            # In other modes, group by artist/track only
+            duplicate_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'])
+            
+        if duplicate_key not in potential_duplicates:
+            potential_duplicates[duplicate_key] = []
+        potential_duplicates[duplicate_key].append(nav_track)
     
     print(f"\n✅ Matching complete!")
     print(f"   Matched tracks: {tracks_with_scrobbles:,}\n")
@@ -206,20 +214,43 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
         
         lastfm_artist = scrobble_info['artist_orig']
         lastfm_track = scrobble_info['track_orig']
-        lastfm_key = (lastfm_artist, lastfm_track)
+        
+        # Use the same key structure for processing as we used for tracking
+        if ALBUM_MATCHING_MODE == "album_aware":
+            processing_key = (lastfm_artist, lastfm_track, scrobble_info.get('album_orig', ''))
+        else:
+            processing_key = (lastfm_artist, lastfm_track)
         
         # Skip if we've already processed this Last.fm track
-        if lastfm_key in processed_lastfm_keys:
+        if processing_key in processed_lastfm_keys:
             continue
         
-        processed_lastfm_keys.add(lastfm_key)
+        processed_lastfm_keys.add(processing_key)
         
         # Check for duplicates
-        duplicates = potential_duplicates[lastfm_key]
+        duplicates = potential_duplicates[processing_key]
         selected_track_ids = None
         
         # Determine if we need to prompt based on mode and number of duplicates
-        should_prompt = (len(duplicates) > 1) or (ALBUM_MATCHING_MODE == "prompt" and len(duplicates) > 1)
+        should_prompt = False
+        if ALBUM_MATCHING_MODE == "album_aware":
+            # In album_aware mode, check if scrobbles have album info
+            scrobble_album = scrobble_info.get('album_orig', '').strip()
+            if not scrobble_album and len(duplicates) > 1:
+                # No album info in scrobbles but multiple Navidrome versions exist
+                # Need to prompt user to choose which album(s) should get the scrobbles
+                should_prompt = True
+                print(f"\n⚠️  Album-aware mode: Last.fm scrobbles for '{lastfm_artist} - {lastfm_track}' lack album information.")
+                print(f"   Multiple album versions found in Navidrome. Please choose which should receive these {len(scrobble_info['timestamps'])} scrobbles.")
+            elif len(duplicates) > 1:
+                # This shouldn't happen in album_aware mode with good album data
+                should_prompt = True
+        elif ALBUM_MATCHING_MODE == "prompt":
+            # In prompt mode, always prompt if there are multiple versions
+            should_prompt = len(duplicates) > 1
+        else:
+            # In album_agnostic mode, prompt for multiple versions
+            should_prompt = len(duplicates) > 1
         
         if should_prompt:
             # Multiple Navidrome tracks match the same Last.fm track
@@ -319,7 +350,11 @@ def show_conflict_mode():
         "prompt": "always prompt which album version(s) to update"
     }
     print(f"📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}")
-    print(f"💽 Album matching mode: {album_mode_desc.get(ALBUM_MATCHING_MODE, ALBUM_MATCHING_MODE)}\n")
+    print(f"💽 Album matching mode: {album_mode_desc.get(ALBUM_MATCHING_MODE, ALBUM_MATCHING_MODE)}")
+    
+    if ALBUM_MATCHING_MODE == "album_aware":
+        print(f"ℹ️  Album-aware mode: When scrobbles lack album info, you'll be prompted to choose which album version(s) should receive the play count.")
+    print()
 
 
 def resolve_playcount(nav: int, lastfm: int, artist: str, title: str, mode: str):

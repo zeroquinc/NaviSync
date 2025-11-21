@@ -182,8 +182,14 @@ def get_lastfm_match_for_navidrome_track(
     if exact_key in aggregated_scrobbles:
         return aggregated_scrobbles[exact_key]
     
-    # If album-aware mode didn't find a match, try album-agnostic mode
+    # If album-aware mode didn't find a match, try matching with empty album
+    # This handles the case where scrobbles lack album information
     if album_aware:
+        empty_album_key = make_key_navidrome(navidrome_artist, navidrome_title, '', True)
+        if empty_album_key in aggregated_scrobbles:
+            return aggregated_scrobbles[empty_album_key]
+            
+        # Also try album-agnostic mode as final fallback
         album_agnostic_key = make_key_navidrome(navidrome_artist, navidrome_title, None, False)
         if album_agnostic_key in aggregated_scrobbles:
             return aggregated_scrobbles[album_agnostic_key]

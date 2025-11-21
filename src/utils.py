@@ -55,8 +55,10 @@ def make_key_lastfm(artist, title, album=None, album_aware=False):
         album: Album name from Last.fm (optional)
         album_aware: If True, include album in key for album-specific matching
     """
-    if album_aware and album:
-        return (normalize(artist), normalize(title), normalize(album))
+    if album_aware:
+        # Always use 3-tuple in album_aware mode, even for empty albums
+        # This ensures consistent key structure
+        return (normalize(artist), normalize(title), normalize(album or ''))
     return (normalize(artist), normalize(title))
 
 def make_key_navidrome(artist, title, album=None, album_aware=False):
@@ -72,8 +74,10 @@ def make_key_navidrome(artist, title, album=None, album_aware=False):
         album: Album name from Navidrome (optional)
         album_aware: If True, include album in key for album-specific matching
     """
-    if album_aware and album:
-        return (normalize(first_artist(artist)), normalize(title), normalize(album))
+    if album_aware:
+        # Always use 3-tuple in album_aware mode, even for empty albums
+        # This ensures consistent key structure
+        return (normalize(first_artist(artist)), normalize(title), normalize(album or ''))
     return (normalize(first_artist(artist)), normalize(title))
 
 def aggregate_scrobbles(scrobbles, album_aware=False):
