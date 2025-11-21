@@ -12,7 +12,7 @@ import json
 import time
 from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
-                       MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
+                       MISSING_LOVED, DUPLICATE_TRACKS, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
                        ENABLE_FUZZY_MATCHING, ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track, unlove_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
@@ -226,6 +226,10 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     print(f"\n✅ Matching complete!")
     print(f"   Matched tracks: {tracks_with_scrobbles:,}\n")
     
+    # Write duplicate tracks log
+    write_duplicate_log(potential_duplicates, album_aware=(ALBUM_MATCHING_MODE == "album_aware"))
+    print()
+    
     # Phase 2: Handle duplicates and create differences list
     processed_lastfm_keys = set()
     
@@ -373,6 +377,64 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
         print(f"   Navidrome stars to sync to Last.fm: {len(navidrome_stars_to_sync)}")
     print()
     return differences, navidrome_stars_to_sync
+
+
+def write_duplicate_log(potential_duplicates, album_aware=False):
+    """Write a log of duplicate tracks to help identify tagging issues.
+    
+    Args:
+        potential_duplicates: Dict mapping Last.fm keys to lists of Navidrome tracks
+        album_aware: Whether album information was included in duplicate detection
+    """
+    duplicate_log = {}
+    
+    for key, duplicates in potential_duplicates.items():
+        if len(duplicates) <= 1:
+            continue  # Skip non-duplicates
+            
+        # Extract artist and track from key
+        if album_aware and len(key) == 3:
+            artist, track, album = key
+        else:
+            artist = key[0]
+            track = key[1]
+            album = None
+        
+        # Create entry for this duplicate group
+        entry = {
+            "lastfm_artist": artist,
+            "lastfm_track": track,
+            "count": len(duplicates),
+            "versions": []
+        }
+        
+        if album:
+            entry["lastfm_album"] = album
+        
+        for dup in duplicates:
+            version_info = {
+                "id": dup['id'],
+                "navidrome_artist": dup['artist'],
+                "navidrome_title": dup['title'],
+                "navidrome_album": dup['album'] or "(No Album)",
+                "path": dup['path']
+            }
+            if dup.get('duration'):
+                version_info["duration_seconds"] = dup['duration']
+            entry["versions"].append(version_info)
+        
+        # Use a unique key for the log
+        log_key = f"{artist} - {track}"
+        if album:
+            log_key += f" [{album}]"
+        duplicate_log[log_key] = entry
+    
+    if duplicate_log:
+        with open(DUPLICATE_TRACKS, "w", encoding="utf-8") as f:
+            json.dump(duplicate_log, f, indent=2, ensure_ascii=False)
+        print(f"📀 Duplicate tracks log saved to {DUPLICATE_TRACKS} ({len(duplicate_log)} groups)")
+    
+    return len(duplicate_log)
 
 
 def write_missing_reports(aggregated_scrobbles, tracks, cache, album_aware=False):

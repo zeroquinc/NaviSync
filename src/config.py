@@ -93,6 +93,7 @@ os.makedirs(JSON_FOLDER, exist_ok=True)  # create folder if it doesn't exist
 # JSON output filenames (inside JSON_FOLDER)
 MISSING_SCROBBLES = os.path.join(JSON_FOLDER, "missing_scrobbles.json")
 MISSING_LOVED = os.path.join(JSON_FOLDER, "missing_loved.json")
+DUPLICATE_TRACKS = os.path.join(JSON_FOLDER, "duplicate_tracks.json")
 
 # Cache database path
 CACHE_FOLDER = os.path.join(PROJECT_ROOT, "cache")

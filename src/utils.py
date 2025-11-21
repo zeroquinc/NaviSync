@@ -116,6 +116,11 @@ def group_missing_by_artist_album(aggregated_scrobbles, tracks, cache, album_awa
     """
     nav_keys = set(make_key_navidrome(t['artist'], t['title'], t.get('album'), album_aware) for t in tracks)
     
+    # Pre-compute album-agnostic keys once for performance (avoid O(n²) in loop)
+    nav_keys_album_agnostic = set(
+        make_key_navidrome(t['artist'], t['title'], None, False) for t in tracks
+    ) if album_aware else set()
+    
     # Get all fuzzy match mappings to check if Last.fm tracks are matched
     fuzzy_matches = cache.get_all_fuzzy_matches()
     
@@ -140,11 +145,9 @@ def group_missing_by_artist_album(aggregated_scrobbles, tracks, cache, album_awa
         album_agnostic_match = False
         
         if album_aware and not exact_match:
-            # Check if there's a match ignoring album
+            # Check if there's a match ignoring album (using pre-computed set)
             album_agnostic_key = make_key_navidrome(info['artist_orig'], info['track_orig'], None, False)
-            album_agnostic_match = album_agnostic_key in set(
-                make_key_navidrome(t['artist'], t['title'], None, False) for t in tracks
-            )
+            album_agnostic_match = album_agnostic_key in nav_keys_album_agnostic
         
         # Also check fuzzy matches
         fuzzy_match = key in fuzzy_matched_lastfm_keys
