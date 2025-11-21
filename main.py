@@ -416,9 +416,10 @@ def write_duplicate_log(potential_duplicates, album_aware=False):
                 "id": dup['id'],
                 "navidrome_artist": dup['artist'],
                 "navidrome_title": dup['title'],
-                "navidrome_album": dup['album'] or "(No Album)",
-                "path": dup['path']
+                "navidrome_album": dup['album'] or "(No Album)"
             }
+            if dup.get('path'):
+                version_info["path"] = dup['path']
             if dup.get('duration'):
                 version_info["duration_seconds"] = dup['duration']
             entry["versions"].append(version_info)
