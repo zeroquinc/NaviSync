@@ -64,6 +64,21 @@ if PLAYCOUNT_CONFLICT_RESOLUTION not in VALID_CONFLICT_MODES:
     print(f"⚠️  Warning: Invalid PLAYCOUNT_CONFLICT_RESOLUTION '{PLAYCOUNT_CONFLICT_RESOLUTION}', using 'ask'")
     PLAYCOUNT_CONFLICT_RESOLUTION = "ask"
 
+# Duplicate track resolution strategy
+# When multiple album versions of the same track exist, how should they be handled?
+# Options: "ask", "all", "first", "skip"
+# - "ask": Prompt user for each duplicate (default, interactive)
+# - "all": Update all versions automatically
+# - "first": Update only the first version found
+# - "skip": Skip tracks with duplicates entirely
+DUPLICATE_RESOLUTION = os.getenv("DUPLICATE_RESOLUTION", "ask").lower()
+
+# Validate the duplicate resolution setting
+VALID_DUPLICATE_MODES = ["ask", "all", "first", "skip"]
+if DUPLICATE_RESOLUTION not in VALID_DUPLICATE_MODES:
+    print(f"⚠️  Warning: Invalid DUPLICATE_RESOLUTION '{DUPLICATE_RESOLUTION}', using 'ask'")
+    DUPLICATE_RESOLUTION = "ask"
+
 # Parse whitelist with error handling
 try:
     FIRST_ARTIST_WHITELIST = json.loads(os.getenv("FIRST_ARTIST_WHITELIST", "[]"))

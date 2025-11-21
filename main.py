@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
                        MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
-                       ENABLE_FUZZY_MATCHING, ALBUM_MATCHING_MODE)
+                       ENABLE_FUZZY_MATCHING, ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track, unlove_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
@@ -255,28 +255,51 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
         # Debug info for troubleshooting
         # print(f"DEBUG: Mode={ALBUM_MATCHING_MODE}, Track={lastfm_artist}-{lastfm_track}, Duplicates={len(duplicates)}")
         
-        # Determine if we need to prompt based on mode and number of duplicates
+        # Determine if we need to prompt based on mode, duplicate resolution, and number of duplicates
         should_prompt = False
-        if ALBUM_MATCHING_MODE == "album_aware":
-            # In album_aware mode, check if scrobbles have album info
-            scrobble_album = scrobble_info.get('album_orig', '').strip()
-            if not scrobble_album and len(duplicates) > 1:
-                # No album info in scrobbles but multiple Navidrome versions exist
-                # Need to prompt user to choose which album(s) should get the scrobbles
-                should_prompt = True
-                print(f"\n⚠️  Album-aware mode: Last.fm scrobbles for '{lastfm_artist} - {lastfm_track}' lack album information.")
-                print(f"   Multiple album versions found in Navidrome. Please choose which should receive these {len(scrobble_info['timestamps'])} scrobbles.")
-            elif len(duplicates) > 1:
-                # This shouldn't happen in album_aware mode with good album data
-                should_prompt = True
-        elif ALBUM_MATCHING_MODE == "prompt":
-            # In prompt mode, always prompt if there are multiple versions
-            should_prompt = len(duplicates) > 1
-        else:
-            # In album_agnostic mode, never prompt - always use all versions
-            should_prompt = False
+        auto_selection = None
         
-        if should_prompt:
+        if len(duplicates) > 1:
+            # Multiple versions exist, check duplicate resolution strategy
+            if DUPLICATE_RESOLUTION == "ask":
+                # Check album matching mode for specific prompting logic
+                if ALBUM_MATCHING_MODE == "album_aware":
+                    scrobble_album = scrobble_info.get('album_orig', '').strip()
+                    if not scrobble_album:
+                        should_prompt = True
+                        print(f"\n⚠️  Album-aware mode: Last.fm scrobbles for '{lastfm_artist} - {lastfm_track}' lack album information.")
+                        print(f"   Multiple album versions found in Navidrome. Please choose which should receive these {len(scrobble_info['timestamps'])} scrobbles.")
+                    else:
+                        should_prompt = True
+                elif ALBUM_MATCHING_MODE == "prompt":
+                    should_prompt = True
+                else:  # album_agnostic
+                    should_prompt = True
+            elif DUPLICATE_RESOLUTION == "all":
+                # Automatically select all versions
+                auto_selection = [dup['id'] for dup in duplicates]
+                print(f"   📀 Auto-selecting all {len(duplicates)} versions of '{lastfm_artist} - {lastfm_track}'")
+            elif DUPLICATE_RESOLUTION == "first":
+                # Automatically select first version
+                auto_selection = [duplicates[0]['id']]
+                album_name = duplicates[0]['album'] if duplicates[0]['album'] else "(No Album)"
+                print(f"   📀 Auto-selecting first version: {album_name} - '{lastfm_artist} - {lastfm_track}'")
+            elif DUPLICATE_RESOLUTION == "skip":
+                # Skip this track entirely
+                print(f"   ⏭️  Skipping '{lastfm_artist} - {lastfm_track}' (has {len(duplicates)} versions)")
+                continue
+        
+        # Special case for album_agnostic mode when DUPLICATE_RESOLUTION is "ask"
+        if ALBUM_MATCHING_MODE == "album_agnostic" and DUPLICATE_RESOLUTION == "ask" and len(duplicates) > 1:
+            # In album_agnostic + ask mode, default to updating all versions
+            should_prompt = False
+            auto_selection = [dup['id'] for dup in duplicates]
+            print(f"   📀 Album-agnostic: updating all {len(duplicates)} versions of '{lastfm_artist} - {lastfm_track}'")
+        
+        if auto_selection:
+            # Automatic selection based on DUPLICATE_RESOLUTION
+            selected_track_ids = auto_selection
+        elif should_prompt:
             # Multiple Navidrome tracks match the same Last.fm track
             # Check if user has already made a selection for this Last.fm track
             cached_selection = cache.get_duplicate_selection(lastfm_artist, lastfm_track)
@@ -304,14 +327,8 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 # User chose to skip
                 continue
         else:
-            # No prompting needed
-            if ALBUM_MATCHING_MODE == "album_agnostic" and len(duplicates) > 1:
-                # In album_agnostic mode, automatically select ALL tracks
-                selected_track_ids = [dup['id'] for dup in duplicates]
-                print(f"   📀 Album-agnostic: updating all {len(duplicates)} versions of '{lastfm_artist} - {lastfm_track}'")
-            else:
-                # Only one track, use it (or in album_aware mode, each track gets its own count)
-                selected_track_ids = [duplicates[0]['id']]
+            # Single track, use it
+            selected_track_ids = [duplicates[0]['id']]
         
         # Now process only the selected track(s)
         for dup in duplicates:
@@ -382,8 +399,15 @@ def show_conflict_mode():
         "album_aware": "separate play counts per album based on scrobble album info",
         "prompt": "always prompt which album version(s) to update"
     }
+    duplicate_mode_desc = {
+        "ask": "interactive (will prompt for duplicates)",
+        "all": "automatically update all versions",
+        "first": "automatically update first version only",
+        "skip": "skip tracks with multiple versions",
+    }
     print(f"📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}")
     print(f"💽 Album matching mode: {album_mode_desc.get(ALBUM_MATCHING_MODE, ALBUM_MATCHING_MODE)}")
+    print(f"📀 Duplicate resolution mode: {duplicate_mode_desc.get(DUPLICATE_RESOLUTION, DUPLICATE_RESOLUTION)}")
     
     if ALBUM_MATCHING_MODE == "album_aware":
         print(f"ℹ️  Album-aware mode: When scrobbles lack album info, you'll be prompted to choose which album version(s) should receive the play count.")
