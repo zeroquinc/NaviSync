@@ -30,6 +30,25 @@ SYNC_LOVED_TO_LASTFM = os.getenv("SYNC_LOVED_TO_LASTFM", "False") == "True"
 # When True, prompts user to confirm fuzzy matches
 ENABLE_FUZZY_MATCHING = os.getenv("ENABLE_FUZZY_MATCHING", "True") == "True"
 
+# Album-aware matching configuration
+# Controls how tracks with same artist/title on different albums are handled
+# Options: "album_agnostic", "album_aware", "prompt"
+# - "album_agnostic": Combine all scrobbles for same artist/title regardless of album (current behavior)
+# - "album_aware": Match tracks by artist/title/album, allowing different play counts per album
+# - "prompt": Like album_agnostic, but always prompts user to choose which album(s) to update
+ALBUM_MATCHING_MODE = os.getenv("ALBUM_MATCHING_MODE", "album_agnostic").lower()
+
+# Validate the album matching mode setting
+VALID_ALBUM_MODES = ["album_agnostic", "album_aware", "prompt"]
+if ALBUM_MATCHING_MODE not in VALID_ALBUM_MODES:
+    print(f"⚠️  Warning: Invalid ALBUM_MATCHING_MODE '{ALBUM_MATCHING_MODE}', using 'album_agnostic'")
+    ALBUM_MATCHING_MODE = "album_agnostic"
+
+# Legacy support for ALBUM_AWARE_MATCHING (if someone was testing the initial implementation)
+legacy_album_aware = os.getenv("ALBUM_AWARE_MATCHING")
+if legacy_album_aware and ALBUM_MATCHING_MODE == "album_agnostic":
+    ALBUM_MATCHING_MODE = "album_aware" if legacy_album_aware == "True" else "album_agnostic"
+
 # Playcount conflict resolution strategy (for database mode)
 # Options: "ask", "navidrome", "lastfm", "higher", "increment"
 # - "ask": Prompt user for each conflict (default, interactive)

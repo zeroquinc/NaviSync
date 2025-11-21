@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
                        MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
-                       ENABLE_FUZZY_MATCHING)
+                       ENABLE_FUZZY_MATCHING, ALBUM_MATCHING_MODE)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track, unlove_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
@@ -173,7 +173,8 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             aggregated_scrobbles=aggregated_scrobbles,
             cache=cache,
             fuzzy_threshold=85,
-            enable_fuzzy=ENABLE_FUZZY_MATCHING
+            enable_fuzzy=ENABLE_FUZZY_MATCHING,
+            album_aware=(ALBUM_MATCHING_MODE == "album_aware")
         )
 
         if not scrobble_info:
@@ -217,7 +218,10 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
         duplicates = potential_duplicates[lastfm_key]
         selected_track_ids = None
         
-        if len(duplicates) > 1:
+        # Determine if we need to prompt based on mode and number of duplicates
+        should_prompt = (len(duplicates) > 1) or (ALBUM_MATCHING_MODE == "prompt" and len(duplicates) > 1)
+        
+        if should_prompt:
             # Multiple Navidrome tracks match the same Last.fm track
             # Check if user has already made a selection for this Last.fm track
             cached_selection = cache.get_duplicate_selection(lastfm_artist, lastfm_track)
@@ -242,7 +246,7 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 # User chose to skip
                 continue
         else:
-            # Only one track, use it
+            # Only one track, use it (or in album_aware mode, each track gets its own count)
             selected_track_ids = [duplicates[0]['id']]
         
         # Now process only the selected track(s)
@@ -290,9 +294,9 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     return differences, navidrome_stars_to_sync
 
 
-def write_missing_reports(aggregated_scrobbles, tracks, cache):
+def write_missing_reports(aggregated_scrobbles, tracks, cache, album_aware=False):
     print("💾 Generating missing tracks analysis from search results...")
-    missing_scrobbles_grouped, missing_loved_grouped = group_missing_by_artist_album(aggregated_scrobbles, tracks, cache)
+    missing_scrobbles_grouped, missing_loved_grouped = group_missing_by_artist_album(aggregated_scrobbles, tracks, cache, album_aware)
     with open(MISSING_SCROBBLES, "w", encoding="utf-8") as f:
         json.dump(missing_scrobbles_grouped, f, indent=2, ensure_ascii=False)
     print(f"✅ Missing from scrobbles saved to {MISSING_SCROBBLES}")
@@ -309,7 +313,13 @@ def show_conflict_mode():
         "higher": "always use higher count",
         "increment": "add Last.fm count to Navidrome count",
     }
-    print(f"📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}\n")
+    album_mode_desc = {
+        "album_agnostic": "combine scrobbles for same artist/title regardless of album",
+        "album_aware": "separate play counts per album based on scrobble album info",
+        "prompt": "always prompt which album version(s) to update"
+    }
+    print(f"📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}")
+    print(f"💽 Album matching mode: {album_mode_desc.get(ALBUM_MATCHING_MODE, ALBUM_MATCHING_MODE)}\n")
 
 
 def resolve_playcount(nav: int, lastfm: int, artist: str, title: str, mode: str):
@@ -491,7 +501,7 @@ def main():
         user_id, tracks = get_navidrome_data()
         if not tracks:
             return
-        aggregated_scrobbles = aggregate_scrobbles(all_scrobbles)
+        aggregated_scrobbles = aggregate_scrobbles(all_scrobbles, album_aware=(ALBUM_MATCHING_MODE == "album_aware"))
     except KeyboardInterrupt:
         print("\n\n⚠️  Sync cancelled by user.")
         return
@@ -505,7 +515,7 @@ def main():
 
     try:
         differences, navidrome_stars_to_sync = compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache)
-        write_missing_reports(aggregated_scrobbles, tracks, cache)
+        write_missing_reports(aggregated_scrobbles, tracks, cache, (ALBUM_MATCHING_MODE == "album_aware"))
         
         # Sync Navidrome stars TO Last.fm if enabled
         if SYNC_LOVED_TO_LASTFM and navidrome_stars_to_sync:
