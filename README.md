@@ -24,6 +24,7 @@ Sync your Last.fm play counts and loved tracks to Navidrome with intelligent cac
       ENABLE_FUZZY_MATCHING=True
       PLAYCOUNT_CONFLICT_RESOLUTION=ask
       SYNC_LOVED_TO_LASTFM=False
+      ALBUM_MATCHING_MODE=album_agnostic
    ```
 
 3. **Run:** `python main.py`
