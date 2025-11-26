@@ -24,6 +24,7 @@ Sync your Last.fm play counts and loved tracks to Navidrome with intelligent cac
       ENABLE_FUZZY_MATCHING=True
       PLAYCOUNT_CONFLICT_RESOLUTION=ask
       SYNC_LOVED_TO_LASTFM=False
+      ALBUM_MATCHING_MODE=album_agnostic
    ```
 
 3. **Run:** `python main.py`
@@ -76,6 +77,21 @@ PLAYCOUNT_CONFLICT_RESOLUTION=ask  # Options: ask, navidrome, lastfm, higher, in
 - `lastfm` - Always use Last.fm
 - `higher` - Use whichever is higher
 - `increment` - Add counts together
+
+### Album Matching
+
+```env
+ALBUM_MATCHING_MODE=album_agnostic  # Options: album_agnostic, album_aware, prompt
+```
+
+**Album Handling Options:**
+- `album_agnostic` - Combine scrobbles for same artist/title regardless of album (default, current behavior)
+  - Example: "Track A" on "Album X" and "Compilation Y" both get 100 plays total from Last.fm
+  - When multiple album versions exist, prompts user to choose which to update
+- `album_aware` - Match by artist/title/album, allowing different play counts per album
+  - Example: "Track A" on "Album X" gets 60 plays, same track on "Compilation Y" gets 40 plays
+  - Ideal for mixed albums, compilations, and avoiding duplicate play counts in smart playlists
+- `prompt` - Like album_agnostic, but always asks which album version(s) to update (no auto-selection)
 
 ### Reverse Sync (Optional)
 

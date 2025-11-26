@@ -12,8 +12,8 @@ import json
 import time
 from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
-                       MISSING_LOVED, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
-                       ENABLE_FUZZY_MATCHING)
+                       MISSING_LOVED, DUPLICATE_TRACKS, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
+                       ENABLE_FUZZY_MATCHING, ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track, unlove_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
@@ -117,9 +117,30 @@ def prompt_user_for_duplicate_selection(duplicates):
     print(f"   Track: {duplicates[0]['artist']} - {duplicates[0]['title']}")
     print(f"\n   Found in {len(duplicates)} different location(s):")
     
+    def format_duration(seconds):
+        """Format duration in seconds to MM:SS format."""
+        if not seconds or seconds <= 0:
+            return "--:--"
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes}:{secs:02d}"
+    
     for idx, dup in enumerate(duplicates, 1):
         album_info = dup['album'] if dup['album'] else "(No Album)"
-        print(f"   [{idx}] {album_info}")
+        
+        # Build additional info string
+        info_parts = []
+        if dup.get('track_number'):
+            track_str = f"Track {dup['track_number']}"
+            if dup.get('disc_number') and dup['disc_number'] > 1:
+                track_str = f"Disc {dup['disc_number']}, {track_str}"
+            info_parts.append(track_str)
+        
+        if dup.get('duration'):
+            info_parts.append(f"({format_duration(dup['duration'])})")
+        
+        additional_info = f" - {' '.join(info_parts)}" if info_parts else ""
+        print(f"   [{idx}] {album_info}{additional_info}")
     
     print(f"   [A] Apply to ALL versions")
     print(f"   [0] Skip all versions")
@@ -173,7 +194,8 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             aggregated_scrobbles=aggregated_scrobbles,
             cache=cache,
             fuzzy_threshold=85,
-            enable_fuzzy=ENABLE_FUZZY_MATCHING
+            enable_fuzzy=ENABLE_FUZZY_MATCHING,
+            album_aware=(ALBUM_MATCHING_MODE == "album_aware")
         )
 
         if not scrobble_info:
@@ -187,14 +209,26 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             'scrobble_info': scrobble_info
         })
         
-        # Track duplicates by Last.fm artist/track key
-        lastfm_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'])
-        if lastfm_key not in potential_duplicates:
-            potential_duplicates[lastfm_key] = []
-        potential_duplicates[lastfm_key].append(nav_track)
+        # Track potential duplicates using the same key structure as matching
+        # In album_aware mode, each album should be separate, so use full match key
+        if ALBUM_MATCHING_MODE == "album_aware":
+            # In album_aware mode, use the same key as the scrobble matching
+            # This ensures each album version is treated separately
+            duplicate_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'], scrobble_info.get('album_orig', ''))
+        else:
+            # In other modes, group by artist/track only
+            duplicate_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'])
+            
+        if duplicate_key not in potential_duplicates:
+            potential_duplicates[duplicate_key] = []
+        potential_duplicates[duplicate_key].append(nav_track)
     
     print(f"\n✅ Matching complete!")
     print(f"   Matched tracks: {tracks_with_scrobbles:,}\n")
+    
+    # Write duplicate tracks log
+    write_duplicate_log(potential_duplicates, album_aware=(ALBUM_MATCHING_MODE == "album_aware"))
+    print()
     
     # Phase 2: Handle duplicates and create differences list
     processed_lastfm_keys = set()
@@ -205,19 +239,71 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
         
         lastfm_artist = scrobble_info['artist_orig']
         lastfm_track = scrobble_info['track_orig']
-        lastfm_key = (lastfm_artist, lastfm_track)
+        
+        # Use the same key structure for processing as we used for tracking
+        if ALBUM_MATCHING_MODE == "album_aware":
+            processing_key = (lastfm_artist, lastfm_track, scrobble_info.get('album_orig', ''))
+        else:
+            processing_key = (lastfm_artist, lastfm_track)
         
         # Skip if we've already processed this Last.fm track
-        if lastfm_key in processed_lastfm_keys:
+        if processing_key in processed_lastfm_keys:
             continue
         
-        processed_lastfm_keys.add(lastfm_key)
+        processed_lastfm_keys.add(processing_key)
         
         # Check for duplicates
-        duplicates = potential_duplicates[lastfm_key]
+        duplicates = potential_duplicates[processing_key]
         selected_track_ids = None
         
+        # Debug info for troubleshooting
+        # print(f"DEBUG: Mode={ALBUM_MATCHING_MODE}, Track={lastfm_artist}-{lastfm_track}, Duplicates={len(duplicates)}")
+        
+        # Determine if we need to prompt based on mode, duplicate resolution, and number of duplicates
+        should_prompt = False
+        auto_selection = None
+        
         if len(duplicates) > 1:
+            # Multiple versions exist, check duplicate resolution strategy
+            if DUPLICATE_RESOLUTION == "ask":
+                # Check album matching mode for specific prompting logic
+                if ALBUM_MATCHING_MODE == "album_aware":
+                    scrobble_album = scrobble_info.get('album_orig', '').strip()
+                    if not scrobble_album:
+                        should_prompt = True
+                        print(f"\n⚠️  Album-aware mode: Last.fm scrobbles for '{lastfm_artist} - {lastfm_track}' lack album information.")
+                        print(f"   Multiple album versions found in Navidrome. Please choose which should receive these {len(scrobble_info['timestamps'])} scrobbles.")
+                    else:
+                        should_prompt = True
+                elif ALBUM_MATCHING_MODE == "prompt":
+                    should_prompt = True
+                else:  # album_agnostic
+                    should_prompt = True
+            elif DUPLICATE_RESOLUTION == "all":
+                # Automatically select all versions
+                auto_selection = [dup['id'] for dup in duplicates]
+                print(f"   📀 Auto-selecting all {len(duplicates)} versions of '{lastfm_artist} - {lastfm_track}'")
+            elif DUPLICATE_RESOLUTION == "first":
+                # Automatically select first version
+                auto_selection = [duplicates[0]['id']]
+                album_name = duplicates[0]['album'] if duplicates[0]['album'] else "(No Album)"
+                print(f"   📀 Auto-selecting first version: {album_name} - '{lastfm_artist} - {lastfm_track}'")
+            elif DUPLICATE_RESOLUTION == "skip":
+                # Skip this track entirely
+                print(f"   ⏭️  Skipping '{lastfm_artist} - {lastfm_track}' (has {len(duplicates)} versions)")
+                continue
+        
+        # Special case for album_agnostic mode when DUPLICATE_RESOLUTION is "ask"
+        if ALBUM_MATCHING_MODE == "album_agnostic" and DUPLICATE_RESOLUTION == "ask" and len(duplicates) > 1:
+            # In album_agnostic + ask mode, default to updating all versions
+            should_prompt = False
+            auto_selection = [dup['id'] for dup in duplicates]
+            print(f"   📀 Album-agnostic: updating all {len(duplicates)} versions of '{lastfm_artist} - {lastfm_track}'")
+        
+        if auto_selection:
+            # Automatic selection based on DUPLICATE_RESOLUTION
+            selected_track_ids = auto_selection
+        elif should_prompt:
             # Multiple Navidrome tracks match the same Last.fm track
             # Check if user has already made a selection for this Last.fm track
             cached_selection = cache.get_duplicate_selection(lastfm_artist, lastfm_track)
@@ -227,13 +313,16 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 valid_ids = [t['id'] for t in duplicates]
                 selected_track_ids = [tid for tid in cached_selection if tid in valid_ids]
                 
-                if not selected_track_ids:
+                if selected_track_ids:
+                    # Valid cached selection exists, use it silently
+                    pass
+                else:
                     # Cached selection no longer valid, prompt again
                     selected_track_ids = prompt_user_for_duplicate_selection(duplicates)
                     if selected_track_ids:
                         cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
             else:
-                # Prompt user to select which track(s) to update
+                # No cached selection, prompt user to select which track(s) to update
                 selected_track_ids = prompt_user_for_duplicate_selection(duplicates)
                 if selected_track_ids:
                     cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
@@ -242,7 +331,7 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 # User chose to skip
                 continue
         else:
-            # Only one track, use it
+            # Single track, use it
             selected_track_ids = [duplicates[0]['id']]
         
         # Now process only the selected track(s)
@@ -290,9 +379,68 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     return differences, navidrome_stars_to_sync
 
 
-def write_missing_reports(aggregated_scrobbles, tracks, cache):
+def write_duplicate_log(potential_duplicates, album_aware=False):
+    """Write a log of duplicate tracks to help identify tagging issues.
+    
+    Args:
+        potential_duplicates: Dict mapping Last.fm keys to lists of Navidrome tracks
+        album_aware: Whether album information was included in duplicate detection
+    """
+    duplicate_log = {}
+    
+    for key, duplicates in potential_duplicates.items():
+        if len(duplicates) <= 1:
+            continue  # Skip non-duplicates
+            
+        # Extract artist and track from key
+        if album_aware and len(key) == 3:
+            artist, track, album = key
+        else:
+            artist = key[0]
+            track = key[1]
+            album = None
+        
+        # Create entry for this duplicate group
+        entry = {
+            "lastfm_artist": artist,
+            "lastfm_track": track,
+            "count": len(duplicates),
+            "versions": []
+        }
+        
+        if album:
+            entry["lastfm_album"] = album
+        
+        for dup in duplicates:
+            version_info = {
+                "id": dup['id'],
+                "navidrome_artist": dup['artist'],
+                "navidrome_title": dup['title'],
+                "navidrome_album": dup['album'] or "(No Album)"
+            }
+            if dup.get('path'):
+                version_info["path"] = dup['path']
+            if dup.get('duration'):
+                version_info["duration_seconds"] = dup['duration']
+            entry["versions"].append(version_info)
+        
+        # Use a unique key for the log
+        log_key = f"{artist} - {track}"
+        if album:
+            log_key += f" [{album}]"
+        duplicate_log[log_key] = entry
+    
+    if duplicate_log:
+        with open(DUPLICATE_TRACKS, "w", encoding="utf-8") as f:
+            json.dump(duplicate_log, f, indent=2, ensure_ascii=False)
+        print(f"📀 Duplicate tracks log saved to {DUPLICATE_TRACKS} ({len(duplicate_log)} groups)")
+    
+    return len(duplicate_log)
+
+
+def write_missing_reports(aggregated_scrobbles, tracks, cache, album_aware=False):
     print("💾 Generating missing tracks analysis from search results...")
-    missing_scrobbles_grouped, missing_loved_grouped = group_missing_by_artist_album(aggregated_scrobbles, tracks, cache)
+    missing_scrobbles_grouped, missing_loved_grouped = group_missing_by_artist_album(aggregated_scrobbles, tracks, cache, album_aware)
     with open(MISSING_SCROBBLES, "w", encoding="utf-8") as f:
         json.dump(missing_scrobbles_grouped, f, indent=2, ensure_ascii=False)
     print(f"✅ Missing from scrobbles saved to {MISSING_SCROBBLES}")
@@ -309,7 +457,24 @@ def show_conflict_mode():
         "higher": "always use higher count",
         "increment": "add Last.fm count to Navidrome count",
     }
-    print(f"📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}\n")
+    album_mode_desc = {
+        "album_agnostic": "combine scrobbles for same artist/title regardless of album",
+        "album_aware": "separate play counts per album based on scrobble album info",
+        "prompt": "always prompt which album version(s) to update"
+    }
+    duplicate_mode_desc = {
+        "ask": "interactive (will prompt for duplicates)",
+        "all": "automatically update all versions",
+        "first": "automatically update first version only",
+        "skip": "skip tracks with multiple versions",
+    }
+    print(f"📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}")
+    print(f"💽 Album matching mode: {album_mode_desc.get(ALBUM_MATCHING_MODE, ALBUM_MATCHING_MODE)}")
+    print(f"📀 Duplicate resolution mode: {duplicate_mode_desc.get(DUPLICATE_RESOLUTION, DUPLICATE_RESOLUTION)}")
+    
+    if ALBUM_MATCHING_MODE == "album_aware":
+        print(f"ℹ️  Album-aware mode: When scrobbles lack album info, you'll be prompted to choose which album version(s) should receive the play count.")
+    print()
 
 
 def resolve_playcount(nav: int, lastfm: int, artist: str, title: str, mode: str):
@@ -491,7 +656,7 @@ def main():
         user_id, tracks = get_navidrome_data()
         if not tracks:
             return
-        aggregated_scrobbles = aggregate_scrobbles(all_scrobbles)
+        aggregated_scrobbles = aggregate_scrobbles(all_scrobbles, album_aware=(ALBUM_MATCHING_MODE == "album_aware"))
     except KeyboardInterrupt:
         print("\n\n⚠️  Sync cancelled by user.")
         return
@@ -505,7 +670,7 @@ def main():
 
     try:
         differences, navidrome_stars_to_sync = compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache)
-        write_missing_reports(aggregated_scrobbles, tracks, cache)
+        write_missing_reports(aggregated_scrobbles, tracks, cache, (ALBUM_MATCHING_MODE == "album_aware"))
         
         # Sync Navidrome stars TO Last.fm if enabled
         if SYNC_LOVED_TO_LASTFM and navidrome_stars_to_sync:

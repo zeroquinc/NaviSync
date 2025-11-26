@@ -27,10 +27,10 @@ def first_artist(artist):
         if artist_lower == wl_lower or artist_lower.startswith(wl_lower):
             return wl  # preserve canonical casing from whitelist
 
-    # Fallback: split on common separators (feat., &, ',', '/', '-', with, bullet point, etc.)
+    # Fallback: split on common separators (feat., &, +, ',', '/', '-', with, bullet point, etc.)
     # The bullet point (•) is handled separately as it may not have spaces around it
     sep_pattern = re.compile(
-        r"\s+(feat\.?|ft\.?|featuring|&|;|,|/|-|x|vs\.?|and|mit|met|with)\s+|•",
+        r"\s+(feat\.?|ft\.?|featuring|&|\+|;|,|/|-|x|vs\.?|and|mit|met|with)\s+|•",
         flags=re.IGNORECASE,
     )
     return sep_pattern.split(artist_clean)[0].strip()
@@ -44,27 +44,52 @@ def make_key(artist, title):
     """
     return (normalize(first_artist(artist)), normalize(title))
 
-def make_key_lastfm(artist, title):
+def make_key_lastfm(artist, title, album=None, album_aware=False):
     """Create a normalized key for Last.fm scrobbles.
     
     Does NOT apply first_artist() logic - preserves full artist name from Last.fm.
+    
+    Args:
+        artist: Artist name from Last.fm
+        title: Track title from Last.fm
+        album: Album name from Last.fm (optional)
+        album_aware: If True, include album in key for album-specific matching
     """
+    if album_aware:
+        # Always use 3-tuple in album_aware mode, even for empty albums
+        # This ensures consistent key structure
+        return (normalize(artist), normalize(title), normalize(album or ''))
     return (normalize(artist), normalize(title))
 
-def make_key_navidrome(artist, title):
+def make_key_navidrome(artist, title, album=None, album_aware=False):
     """Create a normalized key for Navidrome tracks.
     
     Applies first_artist() logic if SCROBBLED_FIRSTARTISTONLY=True.
     This normalizes Navidrome collaborations (e.g., "2Pac feat Damascus" → "2Pac")
     to match Last.fm scrobbles where user only scrobbles first artist.
+    
+    Args:
+        artist: Artist name from Navidrome
+        title: Track title from Navidrome
+        album: Album name from Navidrome (optional)
+        album_aware: If True, include album in key for album-specific matching
     """
+    if album_aware:
+        # Always use 3-tuple in album_aware mode, even for empty albums
+        # This ensures consistent key structure
+        return (normalize(first_artist(artist)), normalize(title), normalize(album or ''))
     return (normalize(first_artist(artist)), normalize(title))
 
-def aggregate_scrobbles(scrobbles):
-    """Aggregate scrobbles by artist/track key with timestamps and loved status."""
+def aggregate_scrobbles(scrobbles, album_aware=False):
+    """Aggregate scrobbles by artist/track key with timestamps and loved status.
+    
+    Args:
+        scrobbles: List of scrobble dicts from Last.fm
+        album_aware: If True, aggregate by artist/track/album instead of just artist/track
+    """
     aggregated = {}
     for s in scrobbles:
-        key = make_key_lastfm(s['artist'], s['track'])
+        key = make_key_lastfm(s['artist'], s['track'], s.get('album', ''), album_aware)
         aggregated.setdefault(key, {
             'timestamps': [],
             'loved': False,
@@ -77,35 +102,58 @@ def aggregate_scrobbles(scrobbles):
             aggregated[key]['loved'] = True
     return aggregated
 
-def group_missing_by_artist_album(aggregated_scrobbles, tracks, cache):
+def group_missing_by_artist_album(aggregated_scrobbles, tracks, cache, album_aware=False):
     """Group scrobbles that are missing from Navidrome by artist and album.
     
     Args:
-        aggregated_scrobbles: Dict of Last.fm scrobbles aggregated by artist/track
+        aggregated_scrobbles: Dict of Last.fm scrobbles aggregated by artist/track or artist/track/album
         tracks: List of Navidrome tracks
         cache: ScrobbleCache instance to check for fuzzy match mappings
+        album_aware: Whether album information was used in aggregation keys
     
     Returns:
         Tuple of (missing_scrobbles_grouped, missing_loved_grouped)
     """
-    nav_keys = set(make_key_navidrome(t['artist'], t['title']) for t in tracks)
+    nav_keys = set(make_key_navidrome(t['artist'], t['title'], t.get('album'), album_aware) for t in tracks)
+    
+    # Pre-compute album-agnostic keys once for performance (avoid O(n²) in loop)
+    nav_keys_album_agnostic = set(
+        make_key_navidrome(t['artist'], t['title'], None, False) for t in tracks
+    ) if album_aware else set()
     
     # Get all fuzzy match mappings to check if Last.fm tracks are matched
     fuzzy_matches = cache.get_all_fuzzy_matches()
     
     # Build a set of Last.fm keys that have been fuzzy-matched to Navidrome tracks
-    # Format: (normalized_lastfm_artist, normalized_lastfm_track)
     fuzzy_matched_lastfm_keys = set()
     for match in fuzzy_matches:
-        lastfm_key = make_key_lastfm(match['lastfm_artist'], match['lastfm_track'])
+        # For fuzzy matches, we don't have album info stored, so use album_aware=False
+        lastfm_key = make_key_lastfm(match['lastfm_artist'], match['lastfm_track'], None, False)
         fuzzy_matched_lastfm_keys.add(lastfm_key)
+        
+        # Also check album-aware variant if we're in album-aware mode
+        if album_aware:
+            album_aware_key = make_key_lastfm(match['lastfm_artist'], match['lastfm_track'], "", album_aware)
+            fuzzy_matched_lastfm_keys.add(album_aware_key)
 
     missing_scrobbles = {}
     missing_loved = {}
 
     for key, info in aggregated_scrobbles.items():
-        # Skip if track exists in Navidrome (exact match) OR has been fuzzy-matched
-        if key in nav_keys or key in fuzzy_matched_lastfm_keys:
+        # For album-aware mode, check both exact match and album-agnostic match
+        exact_match = key in nav_keys
+        album_agnostic_match = False
+        
+        if album_aware and not exact_match:
+            # Check if there's a match ignoring album (using pre-computed set)
+            album_agnostic_key = make_key_navidrome(info['artist_orig'], info['track_orig'], None, False)
+            album_agnostic_match = album_agnostic_key in nav_keys_album_agnostic
+        
+        # Also check fuzzy matches
+        fuzzy_match = key in fuzzy_matched_lastfm_keys
+        
+        # Skip if track exists in Navidrome (exact or album-agnostic match) OR has been fuzzy-matched
+        if exact_match or album_agnostic_match or fuzzy_match:
             continue
             
         artist = info['artist_orig']

@@ -30,6 +30,25 @@ SYNC_LOVED_TO_LASTFM = os.getenv("SYNC_LOVED_TO_LASTFM", "False") == "True"
 # When True, prompts user to confirm fuzzy matches
 ENABLE_FUZZY_MATCHING = os.getenv("ENABLE_FUZZY_MATCHING", "True") == "True"
 
+# Album-aware matching configuration
+# Controls how tracks with same artist/title on different albums are handled
+# Options: "album_agnostic", "album_aware", "prompt"
+# - "album_agnostic": Combine all scrobbles for same artist/title regardless of album (current behavior)
+# - "album_aware": Match tracks by artist/title/album, allowing different play counts per album
+# - "prompt": Like album_agnostic, but always prompts user to choose which album(s) to update
+ALBUM_MATCHING_MODE = os.getenv("ALBUM_MATCHING_MODE", "album_agnostic").lower()
+
+# Validate the album matching mode setting
+VALID_ALBUM_MODES = ["album_agnostic", "album_aware", "prompt"]
+if ALBUM_MATCHING_MODE not in VALID_ALBUM_MODES:
+    print(f"⚠️  Warning: Invalid ALBUM_MATCHING_MODE '{ALBUM_MATCHING_MODE}', using 'album_agnostic'")
+    ALBUM_MATCHING_MODE = "album_agnostic"
+
+# Legacy support for ALBUM_AWARE_MATCHING (if someone was testing the initial implementation)
+legacy_album_aware = os.getenv("ALBUM_AWARE_MATCHING")
+if legacy_album_aware and ALBUM_MATCHING_MODE == "album_agnostic":
+    ALBUM_MATCHING_MODE = "album_aware" if legacy_album_aware == "True" else "album_agnostic"
+
 # Playcount conflict resolution strategy (for database mode)
 # Options: "ask", "navidrome", "lastfm", "higher", "increment"
 # - "ask": Prompt user for each conflict (default, interactive)
@@ -45,6 +64,21 @@ if PLAYCOUNT_CONFLICT_RESOLUTION not in VALID_CONFLICT_MODES:
     print(f"⚠️  Warning: Invalid PLAYCOUNT_CONFLICT_RESOLUTION '{PLAYCOUNT_CONFLICT_RESOLUTION}', using 'ask'")
     PLAYCOUNT_CONFLICT_RESOLUTION = "ask"
 
+# Duplicate track resolution strategy
+# When multiple album versions of the same track exist, how should they be handled?
+# Options: "ask", "all", "first", "skip"
+# - "ask": Prompt user for each duplicate (default, interactive)
+# - "all": Update all versions automatically
+# - "first": Update only the first version found
+# - "skip": Skip tracks with duplicates entirely
+DUPLICATE_RESOLUTION = os.getenv("DUPLICATE_RESOLUTION", "ask").lower()
+
+# Validate the duplicate resolution setting
+VALID_DUPLICATE_MODES = ["ask", "all", "first", "skip"]
+if DUPLICATE_RESOLUTION not in VALID_DUPLICATE_MODES:
+    print(f"⚠️  Warning: Invalid DUPLICATE_RESOLUTION '{DUPLICATE_RESOLUTION}', using 'ask'")
+    DUPLICATE_RESOLUTION = "ask"
+
 # Parse whitelist with error handling
 try:
     FIRST_ARTIST_WHITELIST = json.loads(os.getenv("FIRST_ARTIST_WHITELIST", "[]"))
@@ -59,6 +93,7 @@ os.makedirs(JSON_FOLDER, exist_ok=True)  # create folder if it doesn't exist
 # JSON output filenames (inside JSON_FOLDER)
 MISSING_SCROBBLES = os.path.join(JSON_FOLDER, "missing_scrobbles.json")
 MISSING_LOVED = os.path.join(JSON_FOLDER, "missing_loved.json")
+DUPLICATE_TRACKS = os.path.join(JSON_FOLDER, "duplicate_tracks.json")
 
 # Cache database path
 CACHE_FOLDER = os.path.join(PROJECT_ROOT, "cache")

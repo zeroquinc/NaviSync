@@ -123,8 +123,19 @@ def get_all_tracks(db_path):
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, title, artist, album FROM media_file")
-        tracks = [{'id': row[0], 'title': row[1], 'artist': row[2], 'album': row[3]} for row in cursor.fetchall()]
+        cursor.execute("""
+            SELECT id, title, artist, album, track_number, disc_number, duration
+            FROM media_file
+        """)
+        tracks = [{
+            'id': row[0], 
+            'title': row[1], 
+            'artist': row[2], 
+            'album': row[3],
+            'track_number': row[4],
+            'disc_number': row[5], 
+            'duration': row[6]
+        } for row in cursor.fetchall()]
         conn.close()
         print(f"Fetched {len(tracks):,} tracks from Navidrome database.")
         return tracks

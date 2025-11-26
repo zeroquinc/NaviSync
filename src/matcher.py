@@ -139,7 +139,8 @@ def get_lastfm_match_for_navidrome_track(
     aggregated_scrobbles: Dict,
     cache,
     fuzzy_threshold: int = 85,
-    enable_fuzzy: bool = True
+    enable_fuzzy: bool = True,
+    album_aware: bool = False
 ) -> Optional[Dict]:
     """
     Get the best Last.fm match for a Navidrome track.
@@ -149,11 +150,12 @@ def get_lastfm_match_for_navidrome_track(
     it will re-prompt the user.
     
     Args:
-        navidrome_track: Navidrome track dict with 'id', 'artist', 'title'
+        navidrome_track: Navidrome track dict with 'id', 'artist', 'title', 'album'
         aggregated_scrobbles: Dict of aggregated Last.fm scrobbles
         cache: ScrobbleCache instance
         fuzzy_threshold: Minimum score for fuzzy matching
         enable_fuzzy: Enable fuzzy matching (default: True)
+        album_aware: Use album information in matching (default: False)
     
     Returns:
         Dict with Last.fm scrobble info, or None if no match
@@ -162,21 +164,35 @@ def get_lastfm_match_for_navidrome_track(
     
     navidrome_artist = navidrome_track['artist']
     navidrome_title = navidrome_track['title']
+    navidrome_album = navidrome_track.get('album', '')
     navidrome_id = navidrome_track['id']
     
     # Check if we have a cached fuzzy match
     cached_match = cache.get_fuzzy_match_for_navidrome_track(navidrome_id)
     if cached_match:
         # Look up the scrobble info using the cached Last.fm artist/track
-        key = make_key_lastfm(cached_match['artist'], cached_match['track'])
+        # Note: fuzzy matches don't include album info, so use album_aware=False
+        key = make_key_lastfm(cached_match['artist'], cached_match['track'], None, False)
         if key in aggregated_scrobbles:
             return aggregated_scrobbles[key]
         # If cached Last.fm track no longer exists in scrobbles, fall through
     
-    # Try exact match first
-    exact_key = make_key_navidrome(navidrome_artist, navidrome_title)
+    # Try exact match first (with album awareness if enabled)
+    exact_key = make_key_navidrome(navidrome_artist, navidrome_title, navidrome_album, album_aware)
     if exact_key in aggregated_scrobbles:
         return aggregated_scrobbles[exact_key]
+    
+    # If album-aware mode didn't find a match, try matching with empty album
+    # This handles the case where scrobbles lack album information
+    if album_aware:
+        empty_album_key = make_key_navidrome(navidrome_artist, navidrome_title, '', True)
+        if empty_album_key in aggregated_scrobbles:
+            return aggregated_scrobbles[empty_album_key]
+            
+        # Also try album-agnostic mode as final fallback
+        album_agnostic_key = make_key_navidrome(navidrome_artist, navidrome_title, None, False)
+        if album_agnostic_key in aggregated_scrobbles:
+            return aggregated_scrobbles[album_agnostic_key]
     
     # Skip fuzzy matching if disabled
     if not enable_fuzzy:
