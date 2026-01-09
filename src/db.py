@@ -119,23 +119,62 @@ def get_navidrome_user_id(db_path):
             return users[0]
 
 def get_all_tracks(db_path):
-    """Get all tracks from Navidrome database."""
+    """Get all tracks from Navidrome database.
+
+    This function is robust to invalid UTF-8 sequences in text columns. Some Navidrome
+    databases may contain malformed bytes for fields like `artist` or `title`. To
+    avoid crashing with a UnicodeDecodeError, we fetch TEXT columns as raw bytes and
+    decode them per-column, using 'utf-8' and falling back to 'replace' on errors.
+    When replacements occur we emit a short warning pointing to the affected record.
+    """
     try:
         conn = sqlite3.connect(db_path)
+        # Fetch text as bytes so we can handle decoding errors explicitly
+        conn.text_factory = bytes
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, title, artist, album, track_number, disc_number, duration
             FROM media_file
         """)
-        tracks = [{
-            'id': row[0], 
-            'title': row[1], 
-            'artist': row[2], 
-            'album': row[3],
-            'track_number': row[4],
-            'disc_number': row[5], 
-            'duration': row[6]
-        } for row in cursor.fetchall()]
+
+        tracks = []
+        for row in cursor.fetchall():
+            track_id = row[0]
+
+            def _decode_field(val, colname):
+                # If the value is None, keep it None
+                if val is None:
+                    return None
+                # If sqlite returned bytes, decode safely
+                if isinstance(val, (bytes, bytearray)):
+                    try:
+                        return val.decode('utf-8')
+                    except UnicodeDecodeError:
+                        # Fall back to replacement so we don't crash; log a short warning
+                        try:
+                            decoded = val.decode('utf-8', 'replace')
+                        except Exception:
+                            # As a last resort, decode using latin-1 so we get a str
+                            decoded = val.decode('latin-1', 'replace')
+                        print(f"⚠️  Non-UTF-8 data in column '{colname}' for track id {track_id}; invalid sequences replaced.")
+                        return decoded
+                # Already a str
+                return val
+
+            title = _decode_field(row[1], 'title')
+            artist = _decode_field(row[2], 'artist')
+            album = _decode_field(row[3], 'album')
+
+            tracks.append({
+                'id': track_id,
+                'title': title,
+                'artist': artist,
+                'album': album,
+                'track_number': row[4],
+                'disc_number': row[5],
+                'duration': row[6]
+            })
+
         conn.close()
         print(f"Fetched {len(tracks):,} tracks from Navidrome database.")
         return tracks
