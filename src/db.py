@@ -139,7 +139,20 @@ def get_all_tracks(db_path):
 
         tracks = []
         for row in cursor.fetchall():
-            track_id = row[0]
+            raw_id = row[0]
+            # Normalize id so it's JSON-serializable (prefer int when possible)
+            if isinstance(raw_id, (bytes, bytearray)):
+                try:
+                    id_decoded = raw_id.decode('utf-8', 'replace')
+                except Exception:
+                    id_decoded = raw_id.decode('latin-1', 'replace')
+                # If it looks numeric, convert to int; otherwise keep as string
+                try:
+                    track_id = int(id_decoded) if id_decoded.isdigit() else id_decoded
+                except Exception:
+                    track_id = id_decoded
+            else:
+                track_id = raw_id
 
             def _decode_field(val, colname):
                 # If the value is None, keep it None
