@@ -169,7 +169,7 @@ def get_all_tracks(db_path):
                         except Exception:
                             # As a last resort, decode using latin-1 so we get a str
                             decoded = val.decode('latin-1', 'replace')
-                        print(f"⚠️  Non-UTF-8 data in column '{colname}' for track id {track_id}; invalid sequences replaced.")
+                        print(f"ℹ️  Character encoding: Fixed invalid characters in '{colname}' for track id {track_id}")
                         return decoded
                 # Already a str
                 return val
