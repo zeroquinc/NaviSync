@@ -28,9 +28,10 @@ def first_artist(artist):
             return wl  # preserve canonical casing from whitelist
 
     # Fallback: split on common separators (feat., &, +, ',', '/', '-', with, bullet point, etc.)
-    # The bullet point (•) is handled separately as it may not have spaces around it
+    # Match separators with optional space before but required space after
+    # This handles: "Artist & Other", "Artist, Other", "Artist feat. Other", etc.
     sep_pattern = re.compile(
-        r"\s+(feat\.?|ft\.?|featuring|&|\+|;|,|/|-|x|vs\.?|and|mit|met|with)\s+|•",
+        r"\s*(feat\.?|ft\.?|featuring|&|\+|;|,|/|-|x|vs\.?|and|with|mit|met)\s+",
         flags=re.IGNORECASE,
     )
     return sep_pattern.split(artist_clean)[0].strip()
@@ -47,7 +48,9 @@ def make_key(artist, title):
 def make_key_lastfm(artist, title, album=None, album_aware=False):
     """Create a normalized key for Last.fm scrobbles.
     
-    Does NOT apply first_artist() logic - preserves full artist name from Last.fm.
+    Does NOT apply first_artist() logic - preserves the actual artist name from Last.fm.
+    This is important because Last.fm scrobbles should be matched as they were actually scrobbled,
+    even if SCROBBLED_FIRSTARTISTONLY is enabled (which only affects future scrobbles).
     
     Args:
         artist: Artist name from Last.fm
