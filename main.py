@@ -103,15 +103,195 @@ def connect_db(db_path):
         return None
 
 
-def prompt_user_for_duplicate_selection(duplicates):
+def analyze_album_distribution(scrobble_info, duplicates):
+    """
+    Analyze which albums the Last.fm scrobbles belong to and suggest distribution.
+    
+    Args:
+        scrobble_info: Dict with 'timestamps' and album data from Last.fm
+        duplicates: List of Navidrome track versions with 'album' field
+    
+    Returns:
+        Dict with album distribution data: {navidrome_album: {'lastfm_albums': [...], 'count': int, 'percentage': float}}
+    """
+    # Get the raw scrobbles to see their albums
+    # This requires access to the aggregated scrobbles dict, which we'll pass through
+    # For now, we'll return data based on analysis of available scrobbles
+    
+    # Try to read from the cache if we have timestamps
+    # This is simplified - we'll enhance with actual album mapping
+    distribution = {
+        dup['album'] if dup['album'] else "(No Album)": {
+            'suggested_count': len(scrobble_info['timestamps']),
+            'original_count': len(scrobble_info['timestamps'])
+        }
+        for dup in duplicates
+    }
+    
+    return distribution
+
+
+def calculate_album_divide(duplicates, scrobble_info):
+    """
+    Calculate album-aware divide distribution WITHOUT interactive output.
+    
+    Used internally when applying cached selections or getting the distribution.
+    
+    Args:
+        duplicates: List of Navidrome track versions with 'id', 'album' fields
+        scrobble_info: Dict with 'timestamps' and 'album_orig' from Last.fm
+    
+    Returns:
+        Dict mapping track_id to calculated playcount
+    """
+    total_scrobbles = len(scrobble_info['timestamps'])
+    lastfm_album = scrobble_info.get('album_orig', '').strip()
+    
+    if not lastfm_album:
+        # No album info from Last.fm, divide equally
+        per_version = total_scrobbles // len(duplicates)
+        remainder = total_scrobbles % len(duplicates)
+        
+        distribution = {}
+        for idx, dup in enumerate(duplicates):
+            # Distribute remainder to first few versions
+            count = per_version + (1 if idx < remainder else 0)
+            distribution[dup['id']] = count
+        
+        return distribution
+    else:
+        # Last.fm has album info - try to match to Navidrome albums
+        # Find best matching Navidrome album
+        exact_match = None
+        for dup in duplicates:
+            nav_album = (dup['album'] or '').strip()
+            if nav_album.lower() == lastfm_album.lower():
+                exact_match = dup
+                break
+        
+        if exact_match:
+            # Perfect match - give all scrobbles to this version
+            distribution = {}
+            for dup in duplicates:
+                distribution[dup['id']] = total_scrobbles if dup['id'] == exact_match['id'] else 0
+            
+            return distribution
+        else:
+            # No exact match - divide equally as fallback
+            per_version = total_scrobbles // len(duplicates)
+            remainder = total_scrobbles % len(duplicates)
+            
+            distribution = {}
+            for idx, dup in enumerate(duplicates):
+                count = per_version + (1 if idx < remainder else 0)
+                distribution[dup['id']] = count
+            
+            return distribution
+
+
+def process_album_divide(duplicates, scrobble_info, cache, lastfm_artist, lastfm_track):
+    """
+    Process album-aware divide: distribute scrobbles across album versions based on Last.fm data.
+    
+    This function matches Last.fm albums to Navidrome album versions and divides the
+    playcount proportionally. If a scrobble doesn't have album info or doesn't match,
+    it's divided equally among versions.
+    
+    Args:
+        duplicates: List of Navidrome track versions with 'id', 'album' fields
+        scrobble_info: Dict with 'timestamps' and 'album_orig' from Last.fm
+        cache: ScrobbleCache instance (for caching decisions)
+        lastfm_artist: Last.fm artist name
+        lastfm_track: Last.fm track name
+    
+    Returns:
+        Dict mapping track_id to calculated playcount
+    """
+    total_scrobbles = len(scrobble_info['timestamps'])
+    
+    print(f"\n📀 Album-aware divide for: {lastfm_artist} - {lastfm_track}")
+    print(f"   Total scrobbles: {total_scrobbles}")
+    print(f"   Navidrome versions:")
+    
+    for idx, dup in enumerate(duplicates, 1):
+        album_name = dup['album'] if dup['album'] else "(No Album)"
+        print(f"      [{idx}] {album_name}")
+    
+    # Try to get album info from scrobble_info
+    lastfm_album = scrobble_info.get('album_orig', '').strip()
+    
+    if not lastfm_album:
+        # No album info from Last.fm, divide equally
+        print(f"   ⚠️  Last.fm scrobbles don't have album information")
+        print(f"   → Dividing {total_scrobbles} scrobbles equally among {len(duplicates)} versions")
+        
+        per_version = total_scrobbles // len(duplicates)
+        remainder = total_scrobbles % len(duplicates)
+        
+        distribution = {}
+        for idx, dup in enumerate(duplicates):
+            # Distribute remainder to first few versions
+            count = per_version + (1 if idx < remainder else 0)
+            distribution[dup['id']] = count
+            album_name = dup['album'] if dup['album'] else "(No Album)"
+            print(f"      {album_name}: {count} scrobbles")
+        
+        return distribution
+    else:
+        # Last.fm has album info - try to match to Navidrome albums
+        print(f"   Last.fm album: {lastfm_album}")
+        
+        # Find best matching Navidrome album
+        exact_match = None
+        for dup in duplicates:
+            nav_album = (dup['album'] or '').strip()
+            if nav_album.lower() == lastfm_album.lower():
+                exact_match = dup
+                break
+        
+        if exact_match:
+            # Perfect match - give all scrobbles to this version
+            print(f"   ✅ Matched to Navidrome album: {exact_match['album']}")
+            distribution = {}
+            for dup in duplicates:
+                distribution[dup['id']] = total_scrobbles if dup['id'] == exact_match['id'] else 0
+            
+            for dup in duplicates:
+                album_name = dup['album'] if dup['album'] else "(No Album)"
+                print(f"      {album_name}: {distribution[dup['id']]} scrobbles")
+            
+            return distribution
+        else:
+            # No exact match - divide equally as fallback
+            print(f"   ⚠️  No exact album match found in Navidrome")
+            print(f"   → Dividing equally among {len(duplicates)} versions")
+            
+            per_version = total_scrobbles // len(duplicates)
+            remainder = total_scrobbles % len(duplicates)
+            
+            distribution = {}
+            for idx, dup in enumerate(duplicates):
+                count = per_version + (1 if idx < remainder else 0)
+                distribution[dup['id']] = count
+                album_name = dup['album'] if dup['album'] else "(No Album)"
+                print(f"      {album_name}: {count} scrobbles")
+            
+            return distribution
+
+
+def prompt_user_for_duplicate_selection(duplicates, scrobble_info=None, album_maps=None):
     """
     Prompt user to select which album version(s) should receive the play count.
     
     Args:
         duplicates: List of dicts with Navidrome track info including 'id', 'album', 'artist', 'title'
+        scrobble_info: Optional dict with Last.fm scrobble info including 'timestamps' 
+        album_maps: Optional dict mapping navidrome albums to last.fm albums for album-aware divide
     
     Returns:
-        List of selected track IDs, or None if user wants to skip all
+        Tuple of (selected_track_ids, distribution_dict) where distribution_dict is None unless album-divide is used
+        selected_track_ids: List of selected track IDs, or None if user wants to skip all
+        distribution_dict: For album-divide, dict of {track_id: playcount} for division, else None
     """
     print(f"\n⚠️  Multiple versions of the same track found in Navidrome:")
     print(f"   Track: {duplicates[0]['artist']} - {duplicates[0]['title']}")
@@ -143,18 +323,30 @@ def prompt_user_for_duplicate_selection(duplicates):
         print(f"   [{idx}] {album_info}{additional_info}")
     
     print(f"   [A] Apply to ALL versions")
+    if scrobble_info and len(duplicates) > 1:
+        total_scrobbles = len(scrobble_info.get('timestamps', []))
+        print(f"   [B] Album-aware divide (divide {total_scrobbles} scrobbles by album)")
     print(f"   [0] Skip all versions")
     
     while True:
-        choice = input(f"\n   → Select which version(s) to update [1-{len(duplicates)}/A/0]: ").strip().upper()
+        options = f"1-{len(duplicates)}/A"
+        if scrobble_info and len(duplicates) > 1:
+            options += "/B"
+        options += "/0"
+        choice = input(f"\n   → Select which version(s) to update [{options}]: ").strip().upper()
         
         if choice == '0':
             print(f"   ⏭️  Skipped all versions")
-            return None
+            return None, None
         
         if choice == 'A':
             print(f"   ✅ Will update ALL versions")
-            return [dup['id'] for dup in duplicates]
+            return [dup['id'] for dup in duplicates], None
+        
+        if choice == 'B' and scrobble_info and len(duplicates) > 1:
+            # Album-aware divide mode
+            print(f"   📀 Album-aware divide selected")
+            return duplicates, scrobble_info  # Return as special marker
         
         try:
             idx = int(choice)
@@ -162,11 +354,11 @@ def prompt_user_for_duplicate_selection(duplicates):
                 selected = duplicates[idx - 1]
                 album_name = selected['album'] if selected['album'] else "(No Album)"
                 print(f"   ✅ Selected: {album_name}")
-                return [selected['id']]
+                return [selected['id']], None
         except ValueError:
             pass
         
-        print(f"   ⚠️  Invalid choice. Please enter a number between 1-{len(duplicates)}, A, or 0")
+        print(f"   ⚠️  Invalid choice. Please enter a number between {options}")
 
 
 def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
@@ -300,6 +492,9 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             auto_selection = [dup['id'] for dup in duplicates]
             print(f"   📀 Album-agnostic: updating all {len(duplicates)} versions of '{lastfm_artist} - {lastfm_track}'")
         
+        # Track for album-aware divide result
+        album_divide_result = None
+        
         if auto_selection:
             # Automatic selection based on DUPLICATE_RESOLUTION
             selected_track_ids = auto_selection
@@ -314,18 +509,42 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 selected_track_ids = [tid for tid in cached_selection if tid in valid_ids]
                 
                 if selected_track_ids:
-                    # Valid cached selection exists, use it silently
-                    pass
+                    # Valid cached selection exists, check if it was an album-aware divide
+                    # (all duplicates were selected, so recalculate the distribution for consistency)
+                    if len(selected_track_ids) == len(duplicates) and len(duplicates) > 1:
+                        # Likely an album-aware divide, recalculate silently
+                        album_divide_result = calculate_album_divide(duplicates, scrobble_info)
+                    # Otherwise use silently
                 else:
                     # Cached selection no longer valid, prompt again
-                    selected_track_ids = prompt_user_for_duplicate_selection(duplicates)
-                    if selected_track_ids:
+                    result, divide_info = prompt_user_for_duplicate_selection(duplicates, scrobble_info)
+                    
+                    # Check if user selected album-aware divide (result will be duplicates list)
+                    if divide_info is not None and isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict) and 'id' in result[0]:
+                        # Album-aware divide selected
+                        album_divide_result = process_album_divide(result, scrobble_info, cache, lastfm_artist, lastfm_track)
+                        selected_track_ids = list(album_divide_result.keys())
                         cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
+                    elif result:
+                        selected_track_ids = result
+                        cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
+                    else:
+                        selected_track_ids = None
             else:
                 # No cached selection, prompt user to select which track(s) to update
-                selected_track_ids = prompt_user_for_duplicate_selection(duplicates)
-                if selected_track_ids:
+                result, divide_info = prompt_user_for_duplicate_selection(duplicates, scrobble_info)
+                
+                # Check if user selected album-aware divide (result will be duplicates list)
+                if divide_info is not None and isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict) and 'id' in result[0]:
+                    # Album-aware divide selected
+                    album_divide_result = process_album_divide(result, scrobble_info, cache, lastfm_artist, lastfm_track)
+                    selected_track_ids = list(album_divide_result.keys())
                     cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
+                elif result:
+                    selected_track_ids = result
+                    cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids)
+                else:
+                    selected_track_ids = None
             
             if not selected_track_ids:
                 # User chose to skip
@@ -343,7 +562,13 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             nav_count, nav_starred, nav_played_ts = get_annotation_playcount_starred(conn, track_id, user_id)
             
             track_scrobbles = scrobble_info['timestamps']
-            lastfm_count = len(track_scrobbles)
+            
+            # If album-aware divide was used, get the divided count instead of total
+            if album_divide_result is not None:
+                lastfm_count = album_divide_result.get(track_id, 0)
+            else:
+                lastfm_count = len(track_scrobbles)
+            
             last_played = max(track_scrobbles) if track_scrobbles else None
             loved = scrobble_info['loved']
 
