@@ -32,8 +32,9 @@ def first_artist(artist):
     # Fallback: split on common separators (feat., &, +, ',', '/', '-', with, bullet point, etc.)
     # Use word boundaries for multi-letter separators to prevent matching inside artist names
     # Patterns ordered by actual frequency in database: &(112), feat(95), featuring(15), ft(10), and(8)
+    # Allow optional space before separator, required space after
     sep_pattern = re.compile(
-        r"\s+(\bfeat\.?|\bft\.?|\bfeaturing\b|&|\+|;|,|/|\-|\bvs\.?|\band\b|\bwith\b|"
+        r"\s*(\bfeat\.?|\bft\.?|\bfeaturing\b|&|\+|;|,|/|\-|\bvs\.?|\band\b|\bwith\b|"
         r"\bmit\b|\bmet\b|\bx\b|\bremix\b|\bversus\b)\s+",
         flags=re.IGNORECASE,
     )
