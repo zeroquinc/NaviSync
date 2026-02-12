@@ -17,21 +17,24 @@ def first_artist(artist):
     if not SCROBBLED_FIRSTARTISTONLY:
         return artist_clean
 
-    # Exact or prefix match against whitelist (case-insensitive)
+    # Exact match against whitelist (case-insensitive)
+    # The whitelist is for artists you want preserved with specific casing
+    # Only exact matches should trigger preservation (no prefix matching)
     artist_lower = artist_clean.lower()
     for whitelisted in FIRST_ARTIST_WHITELIST:
         wl = (whitelisted or "").strip()
         if not wl:
             continue
         wl_lower = wl.lower()
-        if artist_lower == wl_lower or artist_lower.startswith(wl_lower):
+        if artist_lower == wl_lower:
             return wl  # preserve canonical casing from whitelist
 
     # Fallback: split on common separators (feat., &, +, ',', '/', '-', with, bullet point, etc.)
-    # Match separators with optional space before but required space after
-    # This handles: "Artist & Other", "Artist, Other", "Artist feat. Other", etc.
+    # Use word boundaries for multi-letter separators to prevent matching inside artist names
+    # Patterns ordered by actual frequency in database: &(112), feat(95), featuring(15), ft(10), and(8)
     sep_pattern = re.compile(
-        r"\s*(feat\.?|ft\.?|featuring|&|\+|;|,|/|-|x|vs\.?|and|with|mit|met)\s+",
+        r"\s+(\bfeat\.?|\bft\.?|\bfeaturing\b|&|\+|;|,|/|\-|\bvs\.?|\band\b|\bwith\b|"
+        r"\bmit\b|\bmet\b|\bx\b|\bremix\b|\bversus\b)\s+",
         flags=re.IGNORECASE,
     )
     return sep_pattern.split(artist_clean)[0].strip()
