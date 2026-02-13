@@ -19,7 +19,6 @@ def first_artist(artist):
 
     # Exact match against whitelist (case-insensitive)
     # The whitelist is for artists you want preserved with specific casing
-    # Only exact matches should trigger preservation (no prefix matching)
     artist_lower = artist_clean.lower()
     for whitelisted in FIRST_ARTIST_WHITELIST:
         wl = (whitelisted or "").strip()
@@ -28,6 +27,18 @@ def first_artist(artist):
         wl_lower = wl.lower()
         if artist_lower == wl_lower:
             return wl  # preserve canonical casing from whitelist
+
+    # Prefix match against whitelist (case-insensitive)
+    # Useful when tags include extra artists after a whitelisted entry
+    for whitelisted in FIRST_ARTIST_WHITELIST:
+        wl = (whitelisted or "").strip()
+        if not wl:
+            continue
+        wl_lower = wl.lower()
+        if artist_lower.startswith(wl_lower):
+            tail = artist_lower[len(wl_lower):]
+            if not tail or not tail[0].isalnum():
+                return wl  # preserve canonical casing from whitelist
 
     # Fallback: split on common separators (feat., &, +, ',', '/', '-', with, bullet point, etc.)
     # Use word boundaries for multi-letter separators to prevent matching inside artist names
