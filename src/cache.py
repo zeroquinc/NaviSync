@@ -237,6 +237,9 @@ class ScrobbleCache:
         
         # Clear existing loved tracks
         cursor.execute("DELETE FROM loved_tracks")
+
+        # Reset loved flag for all cached scrobbles before applying current list
+        cursor.execute("UPDATE scrobbles SET loved = 0")
         
         # Insert new loved tracks
         for track in loved_tracks_list:
