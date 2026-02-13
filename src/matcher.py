@@ -140,7 +140,8 @@ def get_lastfm_match_for_navidrome_track(
     cache,
     fuzzy_threshold: int = 85,
     enable_fuzzy: bool = True,
-    album_aware: bool = False
+    album_aware: bool = False,
+    album_specific_keys: Optional[set] = None
 ) -> Optional[Dict]:
     """
     Get the best Last.fm match for a Navidrome track.
@@ -156,6 +157,7 @@ def get_lastfm_match_for_navidrome_track(
         fuzzy_threshold: Minimum score for fuzzy matching
         enable_fuzzy: Enable fuzzy matching (default: True)
         album_aware: Use album information in matching (default: False)
+        album_specific_keys: Optional set of (artist_key, track_key) where Last.fm scrobbles have album info
     
     Returns:
         Dict with Last.fm scrobble info, or None if no match
@@ -182,17 +184,34 @@ def get_lastfm_match_for_navidrome_track(
     if exact_key in aggregated_scrobbles:
         return aggregated_scrobbles[exact_key]
     
-    # If album-aware mode didn't find a match, try matching with empty album
-    # This handles the case where scrobbles lack album information
+    # If album-aware mode didn't find a match, be careful with fallbacks
+    # Only fall back to album-agnostic matches when Last.fm provides no album info for this track
     if album_aware:
+        nav_key_agnostic = make_key_navidrome(navidrome_artist, navidrome_title, None, False)
+        nav_artist_key = nav_key_agnostic[0]
+        nav_title_key = nav_key_agnostic[1]
+        has_album_specific = False
+        if album_specific_keys is not None:
+            has_album_specific = (nav_artist_key, nav_title_key) in album_specific_keys
+
         empty_album_key = make_key_navidrome(navidrome_artist, navidrome_title, '', True)
-        if empty_album_key in aggregated_scrobbles:
+        nav_album_clean = (navidrome_album or '').strip()
+
+        # If Navidrome has no album, accept empty-album scrobbles
+        if not nav_album_clean and empty_album_key in aggregated_scrobbles:
             return aggregated_scrobbles[empty_album_key]
-            
-        # Also try album-agnostic mode as final fallback
-        album_agnostic_key = make_key_navidrome(navidrome_artist, navidrome_title, None, False)
-        if album_agnostic_key in aggregated_scrobbles:
-            return aggregated_scrobbles[album_agnostic_key]
+
+        # If Last.fm has no album info for this artist/title, allow empty/agnostic fallbacks
+        if not has_album_specific:
+            if empty_album_key in aggregated_scrobbles:
+                return aggregated_scrobbles[empty_album_key]
+
+            album_agnostic_key = make_key_navidrome(navidrome_artist, navidrome_title, None, False)
+            if album_agnostic_key in aggregated_scrobbles:
+                return aggregated_scrobbles[album_agnostic_key]
+
+        # Otherwise, don't force an album-agnostic match
+        return None
     
     # Skip fuzzy matching if disabled
     if not enable_fuzzy:

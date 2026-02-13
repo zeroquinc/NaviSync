@@ -212,6 +212,24 @@ class ScrobbleCache:
         conn.close()
         return count
 
+    def get_album_scrobble_counts(self, artist, track):
+        """Get scrobble counts grouped by album for a given artist/track."""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COALESCE(album, ''), COUNT(*)
+            FROM scrobbles
+            WHERE artist = ? AND track = ?
+            GROUP BY COALESCE(album, '')
+        """, (artist, track))
+
+        album_counts = {}
+        for album, count in cursor.fetchall():
+            album_counts[album or ""] = count
+
+        conn.close()
+        return album_counts
+
     def update_loved_tracks(self, loved_tracks_list):
         """Update the loved tracks table with the full list from Last.fm."""
         conn = sqlite3.connect(self.cache_db_path)
@@ -413,7 +431,7 @@ class ScrobbleCache:
             lastfm_track: Last.fm track name
             
         Returns:
-            List of selected Navidrome track IDs, or None if no selection exists
+            Dict with keys {'mode', 'ids'}, or None if no selection exists
         """
         conn = sqlite3.connect(self.cache_db_path)
         cursor = conn.cursor()
@@ -426,28 +444,46 @@ class ScrobbleCache:
         
         if result:
             import json
-            return json.loads(result[0])
+            payload = json.loads(result[0])
+            if isinstance(payload, list):
+                return {
+                    "mode": "select",
+                    "ids": payload
+                }
+            if isinstance(payload, dict):
+                mode = payload.get("mode", "select")
+                ids = payload.get("ids", [])
+                return {
+                    "mode": mode,
+                    "ids": ids
+                }
+            return None
         return None
     
-    def save_duplicate_selection(self, lastfm_artist, lastfm_track, selected_track_ids):
+    def save_duplicate_selection(self, lastfm_artist, lastfm_track, selected_track_ids, mode="select"):
         """Save user's selection for duplicate tracks.
         
         Args:
             lastfm_artist: Last.fm artist name
             lastfm_track: Last.fm track name
             selected_track_ids: List of Navidrome track IDs that should receive the play count
+            mode: Selection mode - "select" or "divide"
         """
         import json
         conn = sqlite3.connect(self.cache_db_path)
         cursor = conn.cursor()
         
         timestamp = int(datetime.now(timezone.utc).timestamp())
+        payload = {
+            "mode": mode,
+            "ids": selected_track_ids
+        }
         
         cursor.execute("""
             INSERT OR REPLACE INTO duplicate_track_selections
             (lastfm_artist, lastfm_track, selected_navidrome_track_ids, selection_timestamp)
             VALUES (?, ?, ?, ?)
-        """, (lastfm_artist, lastfm_track, json.dumps(selected_track_ids), timestamp))
+        """, (lastfm_artist, lastfm_track, json.dumps(payload), timestamp))
         
         conn.commit()
         conn.close()
