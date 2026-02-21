@@ -345,6 +345,53 @@ def prompt_user_for_duplicate_selection(duplicates, scrobble_info=None, album_ma
         print(f"   ⚠️  Invalid choice. Please enter a number between {options}")
 
 
+def prompt_user_for_loved_selection(duplicates, starred_ids):
+    """
+    Prompt user to select which duplicate version(s) should be starred.
+
+    Args:
+        duplicates: List of dicts with Navidrome track info
+        starred_ids: Set of duplicate IDs already starred in Navidrome
+
+    Returns:
+        List of selected track IDs, or None to skip starring
+    """
+    print(f"\n⭐ Loved track has multiple versions in Navidrome:")
+    print(f"   Track: {duplicates[0]['artist']} - {duplicates[0]['title']}")
+    print(f"\n   Found in {len(duplicates)} different location(s):")
+
+    for idx, dup in enumerate(duplicates, 1):
+        album_info = dup['album'] if dup['album'] else "(No Album)"
+        star_marker = " ★" if dup['id'] in starred_ids else ""
+        print(f"   [{idx}] {album_info}{star_marker}")
+
+    print(f"   [A] Apply to ALL versions")
+    print(f"   [0] Skip starring")
+
+    while True:
+        choice = input(f"\n   → Select which version(s) to star [1-{len(duplicates)}/A/0]: ").strip().upper()
+
+        if choice == '0':
+            print(f"   ⏭️  Skipped starring")
+            return None
+
+        if choice == 'A':
+            print(f"   ✅ Will star ALL versions")
+            return [dup['id'] for dup in duplicates]
+
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(duplicates):
+                selected = duplicates[idx - 1]
+                album_name = selected['album'] if selected['album'] else "(No Album)"
+                print(f"   ✅ Selected: {album_name}")
+                return [selected['id']]
+        except ValueError:
+            pass
+
+        print(f"   ⚠️  Invalid choice. Please enter a number between 1-{len(duplicates)} or A/0")
+
+
 def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     differences = []
     navidrome_stars_to_sync = []  # Track Navidrome stars to sync TO Last.fm
@@ -353,6 +400,8 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     
     # Track potential duplicates: key = (lastfm_artist, lastfm_track), value = list of nav tracks
     potential_duplicates = {}
+    # Always keep an album-agnostic map for loved handling in album-aware mode
+    potential_duplicates_agnostic = {}
 
     # Precompute which artist/title pairs have album-specific Last.fm scrobbles
     album_specific_keys = None
@@ -408,6 +457,11 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
         if duplicate_key not in potential_duplicates:
             potential_duplicates[duplicate_key] = []
         potential_duplicates[duplicate_key].append(nav_track)
+
+        agnostic_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'])
+        if agnostic_key not in potential_duplicates_agnostic:
+            potential_duplicates_agnostic[agnostic_key] = []
+        potential_duplicates_agnostic[agnostic_key].append(nav_track)
     
     print(f"\n✅ Matching complete!")
     print(f"   Matched tracks: {tracks_with_scrobbles:,}\n")
@@ -418,7 +472,7 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     
     # Phase 2: Handle duplicates and create differences list
     processed_lastfm_keys = set()
-    
+    love_selection_cache = {}
     for match_info in track_matches:
         nav_track = match_info['nav_track']
         scrobble_info = match_info['scrobble_info']
@@ -549,6 +603,32 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             # Single track, use it
             selected_track_ids = [duplicates[0]['id']]
         
+        # Decide which duplicate(s) should receive loved status in album-aware mode
+        loved_lastfm = scrobble_info['loved']
+        love_allowed_ids = None
+        if loved_lastfm:
+            agnostic_key = (lastfm_artist, lastfm_track)
+            agnostic_dups = potential_duplicates_agnostic.get(agnostic_key, [])
+            if len(agnostic_dups) > 1:
+                love_allowed_ids = love_selection_cache.get(agnostic_key)
+                if love_allowed_ids is None:
+                    cached_selection = cache.get_loved_selection(lastfm_artist, lastfm_track)
+                    if cached_selection is not None:
+                        valid_ids = {t['id'] for t in agnostic_dups}
+                        love_allowed_ids = [tid for tid in cached_selection if tid in valid_ids]
+                    else:
+                        starred_ids = set()
+                        for dup_track in agnostic_dups:
+                            _, nav_starred, _ = get_annotation_playcount_starred(conn, dup_track['id'], user_id)
+                            if nav_starred:
+                                starred_ids.add(dup_track['id'])
+
+                        love_allowed_ids = prompt_user_for_loved_selection(agnostic_dups, starred_ids)
+                        if love_allowed_ids is not None:
+                            cache.save_loved_selection(lastfm_artist, lastfm_track, love_allowed_ids)
+
+                    love_selection_cache[agnostic_key] = love_allowed_ids
+
         # Now process only the selected track(s)
         for dup in duplicates:
             if dup['id'] not in selected_track_ids:
@@ -566,7 +646,9 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 lastfm_count = len(track_scrobbles)
             
             last_played = max(track_scrobbles) if track_scrobbles else None
-            loved = scrobble_info['loved']
+            loved = loved_lastfm
+            if love_allowed_ids is not None:
+                loved = loved and (dup['id'] in love_allowed_ids)
 
             # Check if Navidrome star needs to be synced TO Last.fm
             if SYNC_LOVED_TO_LASTFM and nav_starred and not loved:
