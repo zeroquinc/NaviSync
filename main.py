@@ -1094,11 +1094,14 @@ def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
     updated_loved = 0
     conflicts_resolved = 0
     updated_track_ids = []  # Track which tracks were updated
+    all_processed_track_ids = []  # Track all tracks processed (for aggregation)
 
     for d in differences:
         nav = d['navidrome']
         lastfm = d['lastfm']
         artist, title = d['artist'], d['title']
+        
+        all_processed_track_ids.append(d['id'])  # Track this for later aggregation
 
         # If this track came from an album distribution decision, use that count directly
         # without asking again (user already decided via album mismatch prompt)
@@ -1146,10 +1149,11 @@ def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
     # Update sync timestamp
     cache.set_metadata('last_sync_time', datetime.now(timezone.utc).isoformat())
 
-    # Update artist and album play counts only for affected tracks
+    # Update artist and album play counts for all processed tracks (includes duplicates)
+    # This ensures complete aggregation even if some duplicates didn't change
     print("\n🎨 Updating artist and album play counts...")
-    artists_updated = update_artist_play_counts(conn, user_id, updated_track_ids)
-    albums_updated = update_album_play_counts(conn, user_id, updated_track_ids)
+    artists_updated = update_artist_play_counts(conn, user_id, all_processed_track_ids)
+    albums_updated = update_album_play_counts(conn, user_id, all_processed_track_ids)
     print(f"✅ Updated play counts for {artists_updated} artists and {albums_updated} albums")
 
     # Show summary
