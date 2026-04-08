@@ -13,7 +13,8 @@ import time
 from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
                        MISSING_LOVED, DUPLICATE_TRACKS, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
-                       ENABLE_FUZZY_MATCHING, ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION)
+                       ENABLE_FUZZY_MATCHING, FUZZY_MATCHING_THRESHOLD, FUZZY_MATCHING_AUTO_THRESHOLD, 
+                       ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track, unlove_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
@@ -617,7 +618,8 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             navidrome_track=nav_track,
             aggregated_scrobbles=aggregated_scrobbles,
             cache=cache,
-            fuzzy_threshold=85,
+            fuzzy_threshold=FUZZY_MATCHING_THRESHOLD,
+            auto_fuzzy_threshold=FUZZY_MATCHING_AUTO_THRESHOLD,
             enable_fuzzy=ENABLE_FUZZY_MATCHING,
             album_aware=(ALBUM_MATCHING_MODE == "album_aware"),
             album_specific_keys=album_specific_keys
