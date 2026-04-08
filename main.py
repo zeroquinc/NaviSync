@@ -750,14 +750,21 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                 cached_distribution = cached_selection.get("distribution", None)
                 selected_track_ids = [tid for tid in cached_ids if tid in valid_ids]
                 
-                if selected_track_ids and cached_mode == "select":
-                    # Valid cached manual selection exists - use it silently
-                    if cached_distribution and len(duplicates) > 1:
-                        # Use the cached distribution (from manual album assignment)
+                if selected_track_ids:
+                    # Valid cached selection exists
+                    if cached_mode == "select":
+                        # Manual selection - use it silently
+                        if cached_distribution and len(duplicates) > 1:
+                            # Use the cached distribution (from manual album assignment)
+                            album_divide_result = cached_distribution
+                        # Otherwise use silently
+                    elif cached_mode == "divide" and cached_distribution:
+                        # Cached divide result - use it silently
                         album_divide_result = cached_distribution
-                    # Otherwise use silently
+                        # All duplicates should be processed with the divide
+                        # No need to re-prompt, use the cached result
                 else:
-                    # No valid cached selection or cached divide mode (always re-prompt divide), prompt again
+                    # Cached selection no longer valid, prompt again
                     result, divide_info = prompt_user_for_duplicate_selection(duplicates, scrobble_info)
                     
                     # Check if user selected album-aware divide (result will be duplicates list)
@@ -794,7 +801,7 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                         
                         album_divide_result = process_album_divide(result, scrobble_info, cache, lastfm_artist, lastfm_track)
                         selected_track_ids = list(album_divide_result.keys())
-                        cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids, mode="divide")
+                        cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids, mode="divide", distribution=album_divide_result)
                     elif result:
                         selected_track_ids = result
                         cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids, mode="select")
@@ -838,7 +845,7 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                     
                     album_divide_result = process_album_divide(result, scrobble_info, cache, lastfm_artist, lastfm_track)
                     selected_track_ids = list(album_divide_result.keys())
-                    cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids, mode="divide")
+                    cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids, mode="divide", distribution=album_divide_result)
                 elif result:
                     selected_track_ids = result
                     cache.save_duplicate_selection(lastfm_artist, lastfm_track, selected_track_ids, mode="select")
@@ -1177,20 +1184,57 @@ def close_db(conn):
     time.sleep(2)
 
 
-def sync_stars_to_lastfm(navidrome_stars_to_sync):
+def sync_stars_to_lastfm(navidrome_stars_to_sync, cache):
     """
     Sync Navidrome starred tracks TO Last.fm as loved tracks.
+    Only syncs tracks that aren't already loved on Last.fm.
     
     Args:
         navidrome_stars_to_sync: List of dicts with 'artist', 'track', 'nav_artist', 'nav_track'
+        cache: ScrobbleCache instance to check Last.fm loved tracks
     """
     if not navidrome_stars_to_sync:
         return
     
-    print(f"\n💝 Syncing {len(navidrome_stars_to_sync)} Navidrome stars to Last.fm...")
+    # Get Last.fm loved tracks to avoid syncing ones already loved
+    lastfm_loved = cache.get_all_loved_tracks()
+    lastfm_loved_set = {(t['artist'], t['track']) for t in lastfm_loved}
+    
+    # Filter out tracks already loved on Last.fm
+    to_sync = []
+    already_loved = 0
+    for track_info in navidrome_stars_to_sync:
+        key = (track_info['artist'], track_info['track'])
+        if key not in lastfm_loved_set:
+            to_sync.append(track_info)
+        else:
+            already_loved += 1
+    
+    if already_loved > 0:
+        print(f"\n   (Skipped {already_loved} duplicate loved track{'s' if already_loved != 1 else ''} since Last.fm can't have separate loved tracks per album)")
+    
+    if not to_sync:
+        print("   No new tracks to sync.")
+        return
+    
+    # Deduplicate by Last.fm artist/track (Last.fm only has one entry per track)
+    # If multiple Navidrome duplicates are starred, we only need to sync once
+    seen_tracks = set()
+    deduplicated = []
+    for track_info in to_sync:
+        key = (track_info['artist'], track_info['track'])
+        if key not in seen_tracks:
+            deduplicated.append(track_info)
+            seen_tracks.add(key)
+    
+    if len(deduplicated) < len(to_sync):
+        print(f"   (Deduplicated: {len(to_sync)} Navidrome entries → {len(deduplicated)} unique Last.fm tracks)")
+        to_sync = deduplicated
+    
+    print(f"\n💝 Syncing {len(to_sync)} Navidrome stars to Last.fm...")
     print("   (Navidrome starred → Last.fm loved)\n")
     
-    for track_info in navidrome_stars_to_sync:
+    for track_info in to_sync:
         print(f"  - {track_info['nav_artist']} - {track_info['nav_track']}")
     
     if not prompt_yes_no("\nProceed with syncing these tracks to Last.fm? [y/N]: ", default=False):
@@ -1200,7 +1244,7 @@ def sync_stars_to_lastfm(navidrome_stars_to_sync):
     synced_count = 0
     failed_count = 0
     
-    for track_info in navidrome_stars_to_sync:
+    for track_info in to_sync:
         artist = track_info['artist']
         track = track_info['track']
         
@@ -1245,7 +1289,7 @@ def main():
         
         # Sync Navidrome stars TO Last.fm if enabled
         if SYNC_LOVED_TO_LASTFM and navidrome_stars_to_sync:
-            sync_stars_to_lastfm(navidrome_stars_to_sync)
+            sync_stars_to_lastfm(navidrome_stars_to_sync, cache)
         
         if differences:
             apply_updates(conn, cache, differences, user_id)
