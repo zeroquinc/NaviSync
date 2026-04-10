@@ -445,7 +445,7 @@ class ScrobbleCache:
             lastfm_track: Last.fm track name
             
         Returns:
-            Dict with keys {'mode', 'ids'}, or None if no selection exists
+            Dict with keys {'mode', 'ids', 'distribution'}, or None if no selection exists
         """
         conn = sqlite3.connect(self.cache_db_path)
         cursor = conn.cursor()
@@ -462,19 +462,22 @@ class ScrobbleCache:
             if isinstance(payload, list):
                 return {
                     "mode": "select",
-                    "ids": payload
+                    "ids": payload,
+                    "distribution": None
                 }
             if isinstance(payload, dict):
                 mode = payload.get("mode", "select")
                 ids = payload.get("ids", [])
+                distribution = payload.get("distribution", None)
                 return {
                     "mode": mode,
-                    "ids": ids
+                    "ids": ids,
+                    "distribution": distribution
                 }
             return None
         return None
     
-    def save_duplicate_selection(self, lastfm_artist, lastfm_track, selected_track_ids, mode="select"):
+    def save_duplicate_selection(self, lastfm_artist, lastfm_track, selected_track_ids, mode="select", distribution=None):
         """Save user's selection for duplicate tracks.
         
         Args:
@@ -482,6 +485,7 @@ class ScrobbleCache:
             lastfm_track: Last.fm track name
             selected_track_ids: List of Navidrome track IDs that should receive the play count
             mode: Selection mode - "select" or "divide"
+            distribution: Optional dict mapping track_id to playcount for album-aware divide
         """
         import json
         conn = sqlite3.connect(self.cache_db_path)
@@ -490,7 +494,8 @@ class ScrobbleCache:
         timestamp = int(datetime.now(timezone.utc).timestamp())
         payload = {
             "mode": mode,
-            "ids": selected_track_ids
+            "ids": selected_track_ids,
+            "distribution": distribution
         }
         
         cursor.execute("""

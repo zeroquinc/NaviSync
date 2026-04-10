@@ -139,6 +139,7 @@ def get_lastfm_match_for_navidrome_track(
     aggregated_scrobbles: Dict,
     cache,
     fuzzy_threshold: int = 85,
+    auto_fuzzy_threshold: Optional[int] = None,
     enable_fuzzy: bool = True,
     album_aware: bool = False,
     album_specific_keys: Optional[set] = None
@@ -146,19 +147,20 @@ def get_lastfm_match_for_navidrome_track(
     """
     Get the best Last.fm match for a Navidrome track.
     Uses exact match first, then checks cache, then fuzzy matching with user prompt.
-    
+
     If track was previously skipped but NEW Last.fm tracks are now available,
     it will re-prompt the user.
-    
+
     Args:
         navidrome_track: Navidrome track dict with 'id', 'artist', 'title', 'album'
         aggregated_scrobbles: Dict of aggregated Last.fm scrobbles
         cache: ScrobbleCache instance
         fuzzy_threshold: Minimum score for fuzzy matching
+        auto_fuzzy_threshold: Automatically accept the top fuzzy match when this score is reached
         enable_fuzzy: Enable fuzzy matching (default: True)
         album_aware: Use album information in matching (default: False)
         album_specific_keys: Optional set of (artist_key, track_key) where Last.fm scrobbles have album info
-    
+
     Returns:
         Dict with Last.fm scrobble info, or None if no match
     """
@@ -227,6 +229,17 @@ def get_lastfm_match_for_navidrome_track(
     
     if not fuzzy_matches:
         return None
+
+    # Auto-accept high-confidence fuzzy matches when configured
+    if auto_fuzzy_threshold is not None:
+        top_match = fuzzy_matches[0]
+        if top_match['combined_score'] >= auto_fuzzy_threshold:
+            cache.save_fuzzy_match(
+                navidrome_track,
+                top_match['lastfm_artist'],
+                top_match['lastfm_track']
+            )
+            return top_match['scrobble_info']
     
     # Check if this track was previously skipped
     skipped_info = cache.get_skipped_track_info(navidrome_id)

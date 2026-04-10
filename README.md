@@ -57,13 +57,19 @@ FIRST_ARTIST_WHITELIST=["Simon & Garfunkel", "AC/DC"]  # Keep these exact
 
 ```env
 ENABLE_FUZZY_MATCHING=True  # Default: True
+FUZZY_MATCHING_THRESHOLD=85  # Minimum similarity score to consider a fuzzy candidate
+FUZZY_MATCHING_AUTO_THRESHOLD=95  # Automatically accept a fuzzy match at or above this score
 ```
 
 **Options:**
 - `True` - Enable fuzzy matching with prompts for similar tracks (recommended for accuracy)
 - `False` - Only exact matches, no prompts (faster but fewer matches)
 
-When enabled, the script intelligently finds potential matches for track name variations and prompts you to confirm. When disabled, only 100% exact matches are synced.
+**Threshold settings:**
+- `FUZZY_MATCHING_THRESHOLD` controls the minimum combined similarity score used to find fuzzy candidates
+- `FUZZY_MATCHING_AUTO_THRESHOLD` enables automatic acceptance of the top fuzzy match when its score meets or exceeds this percentage
+
+When enabled, the script intelligently finds potential matches for track name variations. With `FUZZY_MATCHING_AUTO_THRESHOLD` set, high-confidence matches are accepted automatically, while lower-confidence matches still prompt for confirmation.
 
 ### Conflict Resolution
 

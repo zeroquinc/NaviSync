@@ -30,6 +30,29 @@ SYNC_LOVED_TO_LASTFM = os.getenv("SYNC_LOVED_TO_LASTFM", "False") == "True"
 # When True, prompts user to confirm fuzzy matches
 ENABLE_FUZZY_MATCHING = os.getenv("ENABLE_FUZZY_MATCHING", "True") == "True"
 
+# Fuzzy match score settings
+# FUZZY_MATCHING_THRESHOLD: Minimum combined similarity score to consider a candidate (0-100)
+# FUZZY_MATCHING_AUTO_THRESHOLD: If set, automatically accept the best fuzzy match when it reaches this score
+try:
+    FUZZY_MATCHING_THRESHOLD = int(os.getenv("FUZZY_MATCHING_THRESHOLD", "85"))
+    if not 0 <= FUZZY_MATCHING_THRESHOLD <= 100:
+        raise ValueError()
+except ValueError:
+    print("⚠️  Warning: Invalid FUZZY_MATCHING_THRESHOLD, using default 85")
+    FUZZY_MATCHING_THRESHOLD = 85
+
+auto_threshold_value = os.getenv("FUZZY_MATCHING_AUTO_THRESHOLD", "").strip()
+if auto_threshold_value == "":
+    FUZZY_MATCHING_AUTO_THRESHOLD = None
+else:
+    try:
+        FUZZY_MATCHING_AUTO_THRESHOLD = int(auto_threshold_value)
+        if not 0 <= FUZZY_MATCHING_AUTO_THRESHOLD <= 100:
+            raise ValueError()
+    except ValueError:
+        print("⚠️  Warning: Invalid FUZZY_MATCHING_AUTO_THRESHOLD, disabling auto fuzzy accept")
+        FUZZY_MATCHING_AUTO_THRESHOLD = None
+
 # Album-aware matching configuration
 # Controls how tracks with same artist/title on different albums are handled
 # Options: "album_agnostic", "album_aware", "prompt"
