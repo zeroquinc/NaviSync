@@ -22,6 +22,8 @@ Sync your Last.fm play counts and loved tracks including timestamps to Navidrome
       SCROBBLED_FIRSTARTISTONLY=True
       FIRST_ARTIST_WHITELIST=["Suzan & Freek", "Simon & Garfunkel", "AC/DC"]
       ENABLE_FUZZY_MATCHING=True
+      FUZZY_MATCHING_THRESHOLD=85  # Minimum similarity score to consider a fuzzy candidate
+      FUZZY_MATCHING_AUTO_THRESHOLD=95  # Automatically accept a fuzzy match at or above this score
       PLAYCOUNT_CONFLICT_RESOLUTION=ask
       SYNC_LOVED_TO_LASTFM=False
       ALBUM_MATCHING_MODE=album_agnostic
