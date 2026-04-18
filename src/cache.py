@@ -113,6 +113,11 @@ class ScrobbleCache:
         conn.commit()
         conn.close()
 
+    @staticmethod
+    def _normalize_lookup_key(value):
+        """Normalize cache lookup keys to avoid case/whitespace mismatches across runs."""
+        return (value or "").strip().lower()
+
     def get_latest_scrobble_timestamp(self):
         """Get the timestamp of the most recent scrobble in cache."""
         conn = sqlite3.connect(self.cache_db_path)
@@ -459,12 +464,15 @@ class ScrobbleCache:
         Returns:
             Dict with keys {'mode', 'ids', 'distribution'}, or None if no selection exists
         """
+        artist_key = self._normalize_lookup_key(lastfm_artist)
+        track_key = self._normalize_lookup_key(lastfm_track)
+
         conn = sqlite3.connect(self.cache_db_path)
         cursor = conn.cursor()
         cursor.execute("""
             SELECT selected_navidrome_track_ids FROM duplicate_track_selections
-            WHERE lastfm_artist = ? AND lastfm_track = ?
-        """, (lastfm_artist, lastfm_track))
+            WHERE LOWER(TRIM(lastfm_artist)) = ? AND LOWER(TRIM(lastfm_track)) = ?
+        """, (artist_key, track_key))
         result = cursor.fetchone()
         conn.close()
         
@@ -500,6 +508,9 @@ class ScrobbleCache:
             distribution: Optional dict mapping track_id to playcount for album-aware divide
         """
         import json
+        artist_key = self._normalize_lookup_key(lastfm_artist)
+        track_key = self._normalize_lookup_key(lastfm_track)
+
         conn = sqlite3.connect(self.cache_db_path)
         cursor = conn.cursor()
         
@@ -509,12 +520,18 @@ class ScrobbleCache:
             "ids": selected_track_ids,
             "distribution": distribution
         }
+
+        # Remove any legacy rows for the same logical key but different casing/spacing.
+        cursor.execute("""
+            DELETE FROM duplicate_track_selections
+            WHERE LOWER(TRIM(lastfm_artist)) = ? AND LOWER(TRIM(lastfm_track)) = ?
+        """, (artist_key, track_key))
         
         cursor.execute("""
             INSERT OR REPLACE INTO duplicate_track_selections
             (lastfm_artist, lastfm_track, selected_navidrome_track_ids, selection_timestamp)
             VALUES (?, ?, ?, ?)
-        """, (lastfm_artist, lastfm_track, json.dumps(payload), timestamp))
+        """, (artist_key, track_key, json.dumps(payload), timestamp))
         
         conn.commit()
         conn.close()
@@ -529,12 +546,15 @@ class ScrobbleCache:
         Returns:
             List of selected Navidrome track IDs, or None if no selection exists
         """
+        artist_key = self._normalize_lookup_key(lastfm_artist)
+        track_key = self._normalize_lookup_key(lastfm_track)
+
         conn = sqlite3.connect(self.cache_db_path)
         cursor = conn.cursor()
         cursor.execute("""
             SELECT selected_navidrome_track_ids FROM loved_duplicate_selections
-            WHERE lastfm_artist = ? AND lastfm_track = ?
-        """, (lastfm_artist, lastfm_track))
+            WHERE LOWER(TRIM(lastfm_artist)) = ? AND LOWER(TRIM(lastfm_track)) = ?
+        """, (artist_key, track_key))
         result = cursor.fetchone()
         conn.close()
 
@@ -557,15 +577,25 @@ class ScrobbleCache:
             selected_track_ids: List of Navidrome track IDs to star (empty means skip)
         """
         import json
+        artist_key = self._normalize_lookup_key(lastfm_artist)
+        track_key = self._normalize_lookup_key(lastfm_track)
+
         conn = sqlite3.connect(self.cache_db_path)
         cursor = conn.cursor()
 
         timestamp = int(datetime.now(timezone.utc).timestamp())
+
+        # Remove any legacy rows for the same logical key but different casing/spacing.
+        cursor.execute("""
+            DELETE FROM loved_duplicate_selections
+            WHERE LOWER(TRIM(lastfm_artist)) = ? AND LOWER(TRIM(lastfm_track)) = ?
+        """, (artist_key, track_key))
+
         cursor.execute("""
             INSERT OR REPLACE INTO loved_duplicate_selections
             (lastfm_artist, lastfm_track, selected_navidrome_track_ids, selection_timestamp)
             VALUES (?, ?, ?, ?)
-        """, (lastfm_artist, lastfm_track, json.dumps(selected_track_ids), timestamp))
+        """, (artist_key, track_key, json.dumps(selected_track_ids), timestamp))
 
         conn.commit()
         conn.close()
