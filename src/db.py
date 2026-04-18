@@ -4,6 +4,23 @@ import time
 from datetime import datetime, timezone
 import requests
 
+
+def connect_db(db_path):
+    """Open a SQLite connection to the Navidrome database.
+
+    Returns the connection on success, or None if the path is missing or the
+    database cannot be opened (error is printed to stdout).
+    """
+    if not db_path:
+        print("❌ Error: NAVIDROME_DB_PATH is not configured")
+        return None
+    try:
+        return sqlite3.connect(db_path)
+    except sqlite3.Error as e:
+        print(f"❌ Error connecting to Navidrome database: {e}")
+        return None
+
+
 def is_database_locked(db_path, timeout=1):
     """
     Check if database is locked by attempting exclusive access.
@@ -87,14 +104,17 @@ def check_navidrome_active(db_path, check_lock=True, check_mtime=True, navidrome
 
 def get_navidrome_user_id(db_path):
     """Get the Navidrome user ID from the database."""
+    conn = connect_db(db_path)
+    if conn is None:
+        raise RuntimeError("Could not connect to Navidrome database.")
     try:
-        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM user")
         users = [row[0] for row in cursor.fetchall()]
-        conn.close()
     except sqlite3.Error as e:
         raise RuntimeError(f"Error reading Navidrome database: {e}")
+    finally:
+        conn.close()
     
     if not users:
         raise ValueError("No users found in Navidrome user table.")
@@ -127,10 +147,28 @@ def get_all_tracks(db_path):
     decode them per-column, using 'utf-8' and falling back to 'replace' on errors.
     When replacements occur we emit a short warning pointing to the affected record.
     """
+    conn = connect_db(db_path)
+    if conn is None:
+        raise RuntimeError("Could not connect to Navidrome database.")
+    # Fetch text as bytes so we can handle decoding errors explicitly
+    conn.text_factory = bytes
+
+    def _decode_field(val, colname, track_id):
+        if val is None:
+            return None
+        if isinstance(val, (bytes, bytearray)):
+            try:
+                return val.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    decoded = val.decode('utf-8', 'replace')
+                except Exception:
+                    decoded = val.decode('latin-1', 'replace')
+                print(f"ℹ️  Character encoding: Fixed invalid characters in '{colname}' for track id {track_id}")
+                return decoded
+        return val
+
     try:
-        conn = sqlite3.connect(db_path)
-        # Fetch text as bytes so we can handle decoding errors explicitly
-        conn.text_factory = bytes
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, title, artist, album, track_number, disc_number, duration
@@ -154,29 +192,9 @@ def get_all_tracks(db_path):
             else:
                 track_id = raw_id
 
-            def _decode_field(val, colname):
-                # If the value is None, keep it None
-                if val is None:
-                    return None
-                # If sqlite returned bytes, decode safely
-                if isinstance(val, (bytes, bytearray)):
-                    try:
-                        return val.decode('utf-8')
-                    except UnicodeDecodeError:
-                        # Fall back to replacement so we don't crash; log a short warning
-                        try:
-                            decoded = val.decode('utf-8', 'replace')
-                        except Exception:
-                            # As a last resort, decode using latin-1 so we get a str
-                            decoded = val.decode('latin-1', 'replace')
-                        print(f"ℹ️  Character encoding: Fixed invalid characters in '{colname}' for track id {track_id}")
-                        return decoded
-                # Already a str
-                return val
-
-            title = _decode_field(row[1], 'title')
-            artist = _decode_field(row[2], 'artist')
-            album = _decode_field(row[3], 'album')
+            title = _decode_field(row[1], 'title', track_id)
+            artist = _decode_field(row[2], 'artist', track_id)
+            album = _decode_field(row[3], 'album', track_id)
 
             tracks.append({
                 'id': track_id,
@@ -188,11 +206,12 @@ def get_all_tracks(db_path):
                 'duration': row[6]
             })
 
-        conn.close()
         print(f"Fetched {len(tracks):,} tracks from Navidrome database.")
         return tracks
     except sqlite3.Error as e:
         raise RuntimeError(f"Error reading tracks from Navidrome database: {e}")
+    finally:
+        conn.close()
 
 def get_annotation_playcount_starred(conn, track_id, user_id):
     cursor = conn.cursor()
@@ -282,19 +301,19 @@ def update_artist_play_counts(conn, user_id, updated_track_ids=None):
                           recalculates counts for artists of these tracks. If None, updates all artists.
     """
     cursor = conn.cursor()
-    
+
+    # Check once whether media_file_artists table exists for multi-artist support
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='media_file_artists'
+    """)
+    has_multi_artist_table = cursor.fetchone() is not None
+
     # If specific track IDs provided, get only affected artist IDs
     affected_artist_ids = set()
     if updated_track_ids:
-        # Check if there's a media_file_artists table for multi-artist support
-        cursor.execute("""
-            SELECT name FROM sqlite_master 
-            WHERE type='table' AND name='media_file_artists'
-        """)
-        has_multi_artist_table = cursor.fetchone() is not None
-        
         placeholders = ','.join('?' * len(updated_track_ids))
-        
+
         if has_multi_artist_table:
             # Get all artist IDs from media_file_artists for updated tracks
             cursor.execute(f"""
@@ -305,7 +324,7 @@ def update_artist_play_counts(conn, user_id, updated_track_ids=None):
                     AND mfa.artist_id IS NOT NULL
             """, updated_track_ids)
             affected_artist_ids.update(row[0] for row in cursor.fetchall())
-        
+
         # Also get primary artist_id from media_file
         cursor.execute(f"""
             SELECT DISTINCT artist_id
@@ -314,14 +333,7 @@ def update_artist_play_counts(conn, user_id, updated_track_ids=None):
                 AND artist_id IS NOT NULL
         """, updated_track_ids)
         affected_artist_ids.update(row[0] for row in cursor.fetchall())
-    
-    # Check if there's a media_file_artists table for multi-artist support
-    cursor.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='media_file_artists'
-    """)
-    
-    has_multi_artist_table = cursor.fetchone() is not None
+
     artist_play_counts = {}
     
     if has_multi_artist_table:

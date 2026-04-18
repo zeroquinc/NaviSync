@@ -115,7 +115,6 @@ except json.JSONDecodeError:
 
 # JSON output folder
 JSON_FOLDER = os.path.join(PROJECT_ROOT, "json")
-os.makedirs(JSON_FOLDER, exist_ok=True)  # create folder if it doesn't exist
 
 # JSON output filenames (inside JSON_FOLDER)
 MISSING_SCROBBLES = os.path.join(JSON_FOLDER, "missing_scrobbles.json")
@@ -124,11 +123,18 @@ DUPLICATE_TRACKS = os.path.join(JSON_FOLDER, "duplicate_tracks.json")
 
 # Cache database path
 CACHE_FOLDER = os.path.join(PROJECT_ROOT, "cache")
-os.makedirs(CACHE_FOLDER, exist_ok=True)  # create cache folder if it doesn't exist
 CACHE_DB_PATH = os.path.join(CACHE_FOLDER, "scrobbles.db")
 
+
+def setup_directories():
+    """Create output and cache directories if they don't already exist."""
+    os.makedirs(JSON_FOLDER, exist_ok=True)
+    os.makedirs(CACHE_FOLDER, exist_ok=True)
+
+
 def validate_config():
-    """Validate required configuration values."""
+    """Validate required configuration values and create output directories."""
+    setup_directories()
     missing = []
     
     # Last.fm is always required
