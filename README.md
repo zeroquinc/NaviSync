@@ -2,6 +2,8 @@
 
 Sync your Last.fm play counts and loved tracks including timestamps to Navidrome with intelligent caching.
 
+## ⚠️ Always make a backup of your Navidrome database first before using this! ⚠️
+
 ## Quick Start
 
 1. **Install dependencies:**
