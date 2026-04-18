@@ -282,6 +282,18 @@ class ScrobbleCache:
         conn.close()
         return result is not None
 
+    def get_loved_timestamp(self, artist, track):
+        """Return the Unix timestamp when a track was loved on Last.fm, or None."""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT loved_timestamp FROM loved_tracks WHERE artist=? AND track=?",
+            (artist, track)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row and row[0] else None
+
     def get_all_loved_tracks(self):
         """Get all loved tracks."""
         conn = sqlite3.connect(self.cache_db_path)

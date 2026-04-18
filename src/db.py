@@ -213,11 +213,11 @@ def get_annotation_playcount_starred(conn, track_id, user_id):
         return row[0] or 0, bool(row[1]), play_date_ts
     return 0, False, None
 
-def update_annotation(conn, track_id, new_count, new_last_played, loved, user_id):
+def update_annotation(conn, track_id, new_count, new_last_played, loved, user_id, loved_at=None):
     """Update or insert annotation for a track."""
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT play_date FROM annotation
+        SELECT play_date, starred_at FROM annotation
         WHERE user_id=? AND item_id=? AND item_type='media_file'
     """, (user_id, track_id))
     row = cursor.fetchone()
@@ -235,6 +235,13 @@ def update_annotation(conn, track_id, new_count, new_last_played, loved, user_id
     else:
         play_date_str = row[0] if row else None
 
+    # Determine starred_at: only set it if loved, a timestamp is available,
+    # and starred_at is not already set in the DB (preserve manually-set dates).
+    existing_starred_at = row[1] if row else None
+    starred_at_str = existing_starred_at
+    if loved and loved_at and not existing_starred_at:
+        starred_at_str = datetime.fromtimestamp(loved_at, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
     cursor.execute("""
         SELECT 1 FROM annotation
         WHERE user_id=? AND item_id=? AND item_type='media_file'
@@ -245,9 +252,9 @@ def update_annotation(conn, track_id, new_count, new_last_played, loved, user_id
         if loved:
             cursor.execute("""
                 UPDATE annotation
-                SET play_count=?, play_date=?, starred=1
+                SET play_count=?, play_date=?, starred=1, starred_at=?
                 WHERE user_id=? AND item_id=? AND item_type='media_file'
-            """, (new_count, play_date_str, user_id, track_id))
+            """, (new_count, play_date_str, starred_at_str, user_id, track_id))
         else:
             cursor.execute("""
                 UPDATE annotation
@@ -257,9 +264,9 @@ def update_annotation(conn, track_id, new_count, new_last_played, loved, user_id
     else:
         starred_val = 1 if loved else 0
         cursor.execute("""
-            INSERT INTO annotation(user_id, item_id, item_type, play_count, play_date, starred)
-            VALUES (?, ?, 'media_file', ?, ?, ?)
-        """, (user_id, track_id, new_count, play_date_str, starred_val))
+            INSERT INTO annotation(user_id, item_id, item_type, play_count, play_date, starred, starred_at)
+            VALUES (?, ?, 'media_file', ?, ?, ?, ?)
+        """, (user_id, track_id, new_count, play_date_str, starred_val, starred_at_str))
     conn.commit()
 
 def update_artist_play_counts(conn, user_id, updated_track_ids=None):

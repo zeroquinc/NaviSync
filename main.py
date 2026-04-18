@@ -914,6 +914,8 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             if love_allowed_ids is not None:
                 loved = loved and (dup['id'] in love_allowed_ids)
 
+            loved_at = cache.get_loved_timestamp(scrobble_info['artist_orig'], scrobble_info['track_orig']) if loved else None
+
             # Check if Navidrome star needs to be synced TO Last.fm
             if SYNC_LOVED_TO_LASTFM and nav_starred and not loved:
                 navidrome_stars_to_sync.append({
@@ -935,6 +937,7 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                     'nav_played': nav_played_ts,
                     'last_played': last_played,
                     'loved': loved,
+                    'loved_at': loved_at,
                     'lastfm_artist': scrobble_info['artist_orig'],
                     'lastfm_track': scrobble_info['track_orig'],
                     'from_distribution': album_divide_result is not None
@@ -1136,7 +1139,7 @@ def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
         if track_was_updated:
             updated_track_ids.append(d['id'])
 
-        update_annotation(conn, d['id'], new_count, d['last_played'], d['loved'], user_id)
+        update_annotation(conn, d['id'], new_count, d['last_played'], d['loved'], user_id, loved_at=d.get('loved_at'))
 
         # Mark this track as synced in cache using original Last.fm names
         lastfm_artist = d.get('lastfm_artist', d['artist'])
