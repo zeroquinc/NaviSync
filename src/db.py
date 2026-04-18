@@ -4,6 +4,23 @@ import time
 from datetime import datetime, timezone
 import requests
 
+
+def connect_db(db_path):
+    """Open a SQLite connection to the Navidrome database.
+
+    Returns the connection on success, or None if the path is missing or the
+    database cannot be opened (error is printed to stdout).
+    """
+    if not db_path:
+        print("❌ Error: NAVIDROME_DB_PATH is not configured")
+        return None
+    try:
+        return sqlite3.connect(db_path)
+    except sqlite3.Error as e:
+        print(f"❌ Error connecting to Navidrome database: {e}")
+        return None
+
+
 def is_database_locked(db_path, timeout=1):
     """
     Check if database is locked by attempting exclusive access.
