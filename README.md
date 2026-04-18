@@ -27,7 +27,11 @@ Sync your Last.fm play counts and loved tracks including timestamps to Navidrome
       PLAYCOUNT_CONFLICT_RESOLUTION=ask
       SYNC_LOVED_TO_LASTFM=False
       ALBUM_MATCHING_MODE=album_agnostic
+      DUPLICATE_RESOLUTION=ask
+      AUTO_CONFIRM=False
    ```
+
+   Navidrome must be stopped while sync runs so the database can be updated safely.
 
 3. **Run:** `python main.py`
 
@@ -41,7 +45,7 @@ Sync your Last.fm play counts and loved tracks including timestamps to Navidrome
 - **Fast after first run** - Only processes new plays, not your entire history
 - **Intelligent fuzzy matching** - Finds potential matches for track name variations:
   - Handles `&` vs `and`, special characters, accents, and minor differences
-  - **Always prompts you to confirm** - no automatic matching to prevent errors
+   - Prompts you to confirm uncertain matches and can auto-accept high-confidence matches
   - Shows similarity scores to help you decide
   - **Remembers your choices** - confirmed matches are saved and used automatically in future runs
   - You have full control over which tracks get matched
@@ -101,6 +105,28 @@ ALBUM_MATCHING_MODE=album_agnostic  # Options: album_agnostic, album_aware, prom
   - Ideal for mixed albums, compilations, and avoiding duplicate play counts in smart playlists
 - `prompt` - Like album_agnostic, but always asks which album version(s) to update (no auto-selection)
 
+### Duplicate Resolution
+
+```env
+DUPLICATE_RESOLUTION=ask  # Options: ask, all, first, skip
+```
+
+**Duplicate Options:**
+- `ask` - Prompt for each duplicate track version (default)
+- `all` - Update all duplicate versions automatically
+- `first` - Update only the first version found
+- `skip` - Skip tracks that have duplicates
+
+### Auto Confirm
+
+```env
+AUTO_CONFIRM=False  # Default: False
+```
+
+**Options:**
+- `False` - Show final confirmation prompt before applying updates (default)
+- `True` - Skip final confirmation and apply updates immediately
+
 ### Reverse Sync (Optional)
 
 Sync Navidrome starred tracks TO Last.fm as loved tracks:
@@ -140,6 +166,8 @@ View cache status: `python cache_info.py --info`
 View fuzzy match mappings: `python cache_info.py --fuzzy`
 
 Reset sync status: `python cache_info.py --reset`
+
+Clear album cache/fuzzy matches entries: `python clear_album_cache.py`
 
 **Fuzzy Match Mappings:** Once you confirm a fuzzy match (e.g., "The Great Hall and The Prophecy" → "The Great Hall & The Prophecy"), it's saved in the cache. Future runs will automatically use this mapping without prompting you again.
 
