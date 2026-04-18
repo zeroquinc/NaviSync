@@ -102,6 +102,10 @@ if DUPLICATE_RESOLUTION not in VALID_DUPLICATE_MODES:
     print(f"⚠️  Warning: Invalid DUPLICATE_RESOLUTION '{DUPLICATE_RESOLUTION}', using 'ask'")
     DUPLICATE_RESOLUTION = "ask"
 
+# Auto-confirm all updates without prompting (default: False)
+# When True, skips the "Proceed with reviewing and updating?" confirmation prompt
+AUTO_CONFIRM = os.getenv("AUTO_CONFIRM", "False") == "True"
+
 # Parse whitelist with error handling
 try:
     FIRST_ARTIST_WHITELIST = json.loads(os.getenv("FIRST_ARTIST_WHITELIST", "[]"))

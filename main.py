@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES, 
                        MISSING_LOVED, DUPLICATE_TRACKS, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM, 
                        ENABLE_FUZZY_MATCHING, FUZZY_MATCHING_THRESHOLD, FUZZY_MATCHING_AUTO_THRESHOLD, 
-                       ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION)
+                       ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION, AUTO_CONFIRM)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track, unlove_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
@@ -1098,7 +1098,9 @@ def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
         print(f"  - {d['artist']} - {d['title']}{album_info}")
         print(f"    Navidrome: {d['navidrome']} | Last.fm: {d['lastfm']} | Diff: {diff_str} | Loved: {d['loved']}")
 
-    if not prompt_yes_no("\nProceed with reviewing and updating these tracks? [y/N]: ", default=False):
+    if AUTO_CONFIRM:
+        print("\n⚡ AUTO_CONFIRM is enabled, proceeding automatically.")
+    elif not prompt_yes_no("\nProceed with reviewing and updating these tracks? [y/N]: ", default=False):
         print("🧪 Dry run complete. No changes made.")
         return
 
