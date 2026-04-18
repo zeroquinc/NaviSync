@@ -564,7 +564,7 @@ def prompt_user_for_loved_selection(duplicates, starred_ids):
 
         if choice == '0':
             print(f"   ⏭️  Skipped starring")
-            return None
+            return []
 
         if choice == 'A':
             print(f"   ✅ Will star ALL versions")
@@ -868,13 +868,20 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             agnostic_key = (lastfm_artist, lastfm_track)
             agnostic_dups = potential_duplicates_agnostic.get(agnostic_key, [])
             if len(agnostic_dups) > 1:
-                love_allowed_ids = love_selection_cache.get(agnostic_key)
-                if love_allowed_ids is None:
+                if agnostic_key not in love_selection_cache:
                     cached_selection = cache.get_loved_selection(lastfm_artist, lastfm_track)
+                    need_prompt = False
+
                     if cached_selection is not None:
                         valid_ids = {t['id'] for t in agnostic_dups}
                         love_allowed_ids = [tid for tid in cached_selection if tid in valid_ids]
+                        # If saved selection had IDs but all are now stale (e.g. Navidrome re-indexed), re-prompt
+                        if cached_selection and not love_allowed_ids:
+                            need_prompt = True
                     else:
+                        need_prompt = True
+
+                    if need_prompt:
                         starred_ids = set()
                         for dup_track in agnostic_dups:
                             _, nav_starred, _ = get_annotation_playcount_starred(conn, dup_track['id'], user_id)
@@ -882,10 +889,11 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                                 starred_ids.add(dup_track['id'])
 
                         love_allowed_ids = prompt_user_for_loved_selection(agnostic_dups, starred_ids)
-                        if love_allowed_ids is not None:
-                            cache.save_loved_selection(lastfm_artist, lastfm_track, love_allowed_ids)
+                        cache.save_loved_selection(lastfm_artist, lastfm_track, love_allowed_ids)
 
                     love_selection_cache[agnostic_key] = love_allowed_ids
+                else:
+                    love_allowed_ids = love_selection_cache[agnostic_key]
 
         # Decide which duplicates to process
         if album_divide_result is not None:
