@@ -337,7 +337,8 @@ def update_artist_play_counts(conn, user_id, updated_track_ids=None):
         cursor.execute(f"""
             SELECT 
                 mfa.artist_id,
-                SUM(COALESCE(a.play_count, 0)) as total_plays
+                SUM(COALESCE(a.play_count, 0)) as total_plays,
+                MAX(a.play_date) as latest_play_date
             FROM media_file_artists mfa
             JOIN media_file mf ON mfa.media_file_id = mf.id
             LEFT JOIN annotation a ON a.item_id = mf.id 
@@ -349,8 +350,8 @@ def update_artist_play_counts(conn, user_id, updated_track_ids=None):
             GROUP BY mfa.artist_id
         """, params)
         
-        for artist_id, total_plays in cursor.fetchall():
-            artist_play_counts[artist_id] = total_plays
+        for artist_id, total_plays, latest_play_date in cursor.fetchall():
+            artist_play_counts[artist_id] = (total_plays, latest_play_date)
     else:
         # Build query with optional WHERE clause for specific artists
         where_clause = ""
@@ -364,7 +365,8 @@ def update_artist_play_counts(conn, user_id, updated_track_ids=None):
         cursor.execute(f"""
             SELECT 
                 mf.artist_id,
-                SUM(COALESCE(a.play_count, 0)) as total_plays
+                SUM(COALESCE(a.play_count, 0)) as total_plays,
+                MAX(a.play_date) as latest_play_date
             FROM media_file mf
             LEFT JOIN annotation a ON a.item_id = mf.id 
                 AND a.item_type = 'media_file' 
@@ -374,11 +376,11 @@ def update_artist_play_counts(conn, user_id, updated_track_ids=None):
             GROUP BY mf.artist_id
         """, params)
         
-        for artist_id, total_plays in cursor.fetchall():
-            artist_play_counts[artist_id] = total_plays
+        for artist_id, total_plays, latest_play_date in cursor.fetchall():
+            artist_play_counts[artist_id] = (total_plays, latest_play_date)
     
-    # Update each artist's play count in the annotation table
-    for artist_id, total_plays in artist_play_counts.items():
+    # Update each artist's play count and play_date in the annotation table
+    for artist_id, (total_plays, latest_play_date) in artist_play_counts.items():
         # Check if artist annotation exists
         cursor.execute("""
             SELECT 1 FROM annotation
@@ -388,18 +390,25 @@ def update_artist_play_counts(conn, user_id, updated_track_ids=None):
         exists = cursor.fetchone()
         
         if exists:
-            cursor.execute("""
-                UPDATE annotation
-                SET play_count=?
-                WHERE user_id=? AND item_id=? AND item_type='artist'
-            """, (total_plays, user_id, artist_id))
+            if latest_play_date:
+                cursor.execute("""
+                    UPDATE annotation
+                    SET play_count=?, play_date=?
+                    WHERE user_id=? AND item_id=? AND item_type='artist'
+                """, (total_plays, latest_play_date, user_id, artist_id))
+            else:
+                cursor.execute("""
+                    UPDATE annotation
+                    SET play_count=?
+                    WHERE user_id=? AND item_id=? AND item_type='artist'
+                """, (total_plays, user_id, artist_id))
         else:
             # Only insert if total_plays > 0
             if total_plays > 0:
                 cursor.execute("""
-                    INSERT INTO annotation(user_id, item_id, item_type, play_count)
-                    VALUES (?, ?, 'artist', ?)
-                """, (user_id, artist_id, total_plays))
+                    INSERT INTO annotation(user_id, item_id, item_type, play_count, play_date)
+                    VALUES (?, ?, 'artist', ?, ?)
+                """, (user_id, artist_id, total_plays, latest_play_date))
     
     conn.commit()
     return len(artist_play_counts)
@@ -437,11 +446,12 @@ def update_album_play_counts(conn, user_id, updated_track_ids=None):
         where_clause = f"AND mf.album_id IN ({placeholders})"
         params.extend(affected_album_ids)
     
-    # Get albums and their total play counts from tracks
+    # Get albums and their total play counts and latest play date from tracks
     cursor.execute(f"""
         SELECT 
             mf.album_id,
-            SUM(COALESCE(a.play_count, 0)) as total_plays
+            SUM(COALESCE(a.play_count, 0)) as total_plays,
+            MAX(a.play_date) as latest_play_date
         FROM media_file mf
         LEFT JOIN annotation a ON a.item_id = mf.id 
             AND a.item_type = 'media_file' 
@@ -453,8 +463,8 @@ def update_album_play_counts(conn, user_id, updated_track_ids=None):
     
     album_play_counts = cursor.fetchall()
     
-    # Update each album's play count in the annotation table
-    for album_id, total_plays in album_play_counts:
+    # Update each album's play count and play_date in the annotation table
+    for album_id, total_plays, latest_play_date in album_play_counts:
         # Check if album annotation exists
         cursor.execute("""
             SELECT 1 FROM annotation
@@ -464,18 +474,25 @@ def update_album_play_counts(conn, user_id, updated_track_ids=None):
         exists = cursor.fetchone()
         
         if exists:
-            cursor.execute("""
-                UPDATE annotation
-                SET play_count=?
-                WHERE user_id=? AND item_id=? AND item_type='album'
-            """, (total_plays, user_id, album_id))
+            if latest_play_date:
+                cursor.execute("""
+                    UPDATE annotation
+                    SET play_count=?, play_date=?
+                    WHERE user_id=? AND item_id=? AND item_type='album'
+                """, (total_plays, latest_play_date, user_id, album_id))
+            else:
+                cursor.execute("""
+                    UPDATE annotation
+                    SET play_count=?
+                    WHERE user_id=? AND item_id=? AND item_type='album'
+                """, (total_plays, user_id, album_id))
         else:
             # Only insert if total_plays > 0
             if total_plays > 0:
                 cursor.execute("""
-                    INSERT INTO annotation(user_id, item_id, item_type, play_count)
-                    VALUES (?, ?, 'album', ?)
-                """, (user_id, album_id, total_plays))
+                    INSERT INTO annotation(user_id, item_id, item_type, play_count, play_date)
+                    VALUES (?, ?, 'album', ?, ?)
+                """, (user_id, album_id, total_plays, latest_play_date))
     
     conn.commit()
     return len(album_play_counts)
