@@ -9,27 +9,6 @@ distribute scrobbles across album versions, and cache those decisions live here.
 _DIVIDE = "DIVIDE"
 
 
-def analyze_album_distribution(scrobble_info, duplicates):
-    """
-    Analyze which albums the Last.fm scrobbles belong to and suggest distribution.
-
-    Args:
-        scrobble_info: Dict with 'timestamps' and album data from Last.fm
-        duplicates: List of Navidrome track versions with 'album' field
-
-    Returns:
-        Dict with album distribution data: {navidrome_album: {'suggested_count': int, 'original_count': int}}
-    """
-    distribution = {
-        dup['album'] if dup['album'] else "(No Album)": {
-            'suggested_count': len(scrobble_info['timestamps']),
-            'original_count': len(scrobble_info['timestamps'])
-        }
-        for dup in duplicates
-    }
-    return distribution
-
-
 def recompute_manual_distribution(duplicates, cached_distribution, current_album_counts):
     """
     Re-compute a manual (select+distribution) assignment using fresh Last.fm album counts.

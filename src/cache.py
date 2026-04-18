@@ -259,8 +259,6 @@ class ScrobbleCache:
                     INSERT INTO loved_tracks (artist, track, loved_timestamp)
                     VALUES (?, ?, ?)
                 """, (track['artist'], track['track'], track.get('timestamp')))
-
-            for track in loved_tracks_list:
                 cursor.execute(
                     "UPDATE scrobbles SET loved = 1 WHERE artist = ? AND track = ?",
                     (track['artist'], track['track'])
