@@ -132,6 +132,66 @@ def analyze_album_distribution(scrobble_info, duplicates):
     return distribution
 
 
+def recompute_manual_distribution(duplicates, cached_distribution, current_album_counts):
+    """
+    Re-compute a manual (select+distribution) assignment using fresh Last.fm album counts.
+
+    The user previously chose where unmatched scrobbles should go.  We identify
+    that "selected" track from the cached distribution (it's the one that received
+    scrobbles beyond what pure album-name matching would assign), then re-apply the
+    same routing with current counts.
+
+    Args:
+        duplicates: List of Navidrome track dicts with 'id' and 'album'.
+        cached_distribution: The frozen {track_id: count} dict from the cache.
+        current_album_counts: Fresh {album: count} dict from the scrobble cache.
+
+    Returns:
+        Fresh {track_id: count} dict, or None if we can't determine the routing.
+    """
+    if not current_album_counts:
+        return None
+
+    album_counts_norm = {
+        (a or '').strip().lower(): count
+        for a, count in current_album_counts.items()
+    }
+
+    # Compute how many scrobbles each track gets from pure album-name matching
+    matched_counts = {}
+    for dup in duplicates:
+        nav_norm = (dup['album'] or '').strip().lower()
+        matched_counts[dup['id']] = album_counts_norm.get(nav_norm, 0)
+
+    total_matched = sum(matched_counts.values())
+    total_all = sum(current_album_counts.values())
+    total_unmatched = total_all - total_matched
+
+    # Identify the "selected" track: the one that had more in the cached distribution
+    # than what album-name matching alone would give it.
+    selected_id = None
+    if total_unmatched > 0:
+        for dup in duplicates:
+            tid = dup['id']
+            cached_val = cached_distribution.get(tid, 0)
+            if cached_val > matched_counts.get(tid, 0):
+                selected_id = tid
+                break
+
+    if selected_id is None:
+        # Fall back: give unmatched to the track with the most in the cached distribution
+        selected_id = max(cached_distribution, key=lambda k: cached_distribution.get(k, 0), default=None)
+
+    distribution = {}
+    for dup in duplicates:
+        count = matched_counts[dup['id']]
+        if dup['id'] == selected_id:
+            count += total_unmatched
+        distribution[dup['id']] = count
+
+    return distribution
+
+
 def calculate_album_divide(duplicates, scrobble_info, album_counts=None):
     """
     Calculate album-aware divide distribution WITHOUT interactive output.
@@ -757,14 +817,28 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                     if cached_mode == "select":
                         # Manual selection - use it silently
                         if cached_distribution and len(duplicates) > 1:
-                            # Use the cached distribution (from manual album assignment)
-                            album_divide_result = cached_distribution
-                        # Otherwise use silently
+                            # Re-compute the manual distribution with fresh album counts
+                            # so new scrobbles since last run are picked up.
+                            current_album_counts = cache.get_album_scrobble_counts(lastfm_artist, lastfm_track)
+                            refreshed = recompute_manual_distribution(
+                                duplicates, cached_distribution, current_album_counts
+                            ) if current_album_counts else None
+                            album_divide_result = refreshed if refreshed is not None else cached_distribution
+                        # Otherwise use silently (no distribution to update)
                     elif cached_mode == "divide" and cached_distribution:
-                        # Cached divide result - use it silently
-                        album_divide_result = cached_distribution
-                        # All duplicates should be processed with the divide
-                        # No need to re-prompt, use the cached result
+                        # Re-compute distribution from current Last.fm data so new
+                        # scrobbles are reflected (cached distribution has stale counts).
+                        current_album_counts = cache.get_album_scrobble_counts(lastfm_artist, lastfm_track)
+                        album_divide_result = calculate_album_divide(
+                            duplicates, scrobble_info,
+                            album_counts=current_album_counts if current_album_counts else None
+                        )
+                        # Persist refreshed counts so the cache stays up-to-date
+                        cache.save_duplicate_selection(
+                            lastfm_artist, lastfm_track,
+                            list(album_divide_result.keys()),
+                            mode="divide", distribution=album_divide_result
+                        )
                 else:
                     # Cached selection no longer valid, prompt again
                     result, divide_info = prompt_user_for_duplicate_selection(duplicates, scrobble_info)
