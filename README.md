@@ -20,6 +20,8 @@ Sync your Last.fm play counts and loved tracks including timestamps to Navidrome
 
       LASTFM_API_KEY=lastfmapikey
       LASTFM_USER=Username
+      LASTFM_API_SECRET=yoursessionkey
+      LASTFM_SESSION_KEY=optional
 
       SCROBBLED_FIRSTARTISTONLY=True
       FIRST_ARTIST_WHITELIST=["Suzan & Freek", "Simon & Garfunkel", "AC/DC"]
