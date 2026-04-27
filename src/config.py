@@ -20,6 +20,10 @@ LASTFM_USER = os.getenv("LASTFM_USER")
 SCROBBLED_FIRSTARTISTONLY = os.getenv("SCROBBLED_FIRSTARTISTONLY", "True") == "True"
 
 # Sync Configuration
+# Enable syncing play counts from Last.fm to Navidrome (default: True)
+# When False, only loved/starred track status is synced, play counts are left untouched
+SYNC_PLAYCOUNT = os.getenv("SYNC_PLAYCOUNT", "True") == "True"
+
 # Enable syncing Navidrome starred tracks TO Last.fm as loved tracks
 # Requires LASTFM_API_SECRET and LASTFM_SESSION_KEY to be configured
 SYNC_LOVED_TO_LASTFM = os.getenv("SYNC_LOVED_TO_LASTFM", "False") == "True"
