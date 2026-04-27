@@ -102,41 +102,56 @@ def check_navidrome_active(db_path, check_lock=True, check_mtime=True, navidrome
     
     return False, "Navidrome appears to be inactive - safe to proceed"
 
-def get_navidrome_user_id(db_path):
+def get_navidrome_user_id(db_path, preset_user_id=None):
     """Get the Navidrome user ID from the database."""
     conn = connect_db(db_path)
     if conn is None:
         raise RuntimeError("Could not connect to Navidrome database.")
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM user")
-        users = [row[0] for row in cursor.fetchall()]
+        cursor.execute("SELECT id, user_name, email FROM user")
+        users = [(row[0], row[1] or "", row[2] or "") for row in cursor.fetchall()]
     except sqlite3.Error as e:
         raise RuntimeError(f"Error reading Navidrome database: {e}")
     finally:
         conn.close()
-    
+
     if not users:
         raise ValueError("No users found in Navidrome user table.")
-    elif len(users) == 1:
-        print(f"Auto-selected user ID: {users[0]}")
-        return users[0]
+
+    # If a preset user ID is configured, validate and use it directly
+    if preset_user_id:
+        matched = [u for u in users if u[0] == preset_user_id]
+        if matched:
+            uid, name, email = matched[0]
+            label = f"{name} ({email})" if email else name or uid
+            print(f"Using configured user: {label} [{uid}]")
+            return uid
+        else:
+            print(f"⚠️  Configured NAVIDROME_USER_ID '{preset_user_id}' not found in database, falling through to selection.")
+
+    if len(users) == 1:
+        uid, name, email = users[0]
+        label = f"{name} ({email})" if email else name or uid
+        print(f"Auto-selected user: {label} [{uid}]")
+        return uid
     else:
-        print("Multiple user IDs found:")
-        for i, uid in enumerate(users, 1):
-            print(f"{i}: {uid}")
-        choice = input("Select the user ID to use [1]: ").strip()
+        print("Multiple users found:")
+        for i, (uid, name, email) in enumerate(users, 1):
+            label = f"{name} ({email})" if email else name or uid
+            print(f"{i}: {label} [{uid}]")
+        choice = input("Select the user to use [1]: ").strip()
         if not choice:
             choice = "1"
         try:
             index = int(choice) - 1
             if 0 <= index < len(users):
-                return users[index]
+                return users[index][0]
             else:
                 raise ValueError("Invalid selection")
         except (ValueError, IndexError):
             print("⚠️  Invalid selection, using first user.")
-            return users[0]
+            return users[0][0]
 
 def get_all_tracks(db_path):
     """Get all tracks from Navidrome database.
