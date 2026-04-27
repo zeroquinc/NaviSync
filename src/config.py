@@ -11,6 +11,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Database Mode Configuration
 NAVIDROME_DB_PATH = os.getenv("NAVIDROME_DB_PATH")
 NAVIDROME_URL = os.getenv("NAVIDROME_URL")
+NAVIDROME_USER_ID = os.getenv("NAVIDROME_USER_ID", "").strip() or None
 
 # Last.fm Configuration
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")

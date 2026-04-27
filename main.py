@@ -10,7 +10,7 @@ import sys
 import json
 import time
 from datetime import datetime, timezone
-from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES,
+from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, NAVIDROME_USER_ID, CACHE_DB_PATH, MISSING_SCROBBLES,
                         MISSING_LOVED, DUPLICATE_TRACKS, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM,
                         SYNC_PLAYCOUNT, ENABLE_FUZZY_MATCHING, FUZZY_MATCHING_THRESHOLD,
                         FUZZY_MATCHING_AUTO_THRESHOLD, ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION,
@@ -91,7 +91,7 @@ def ensure_navidrome_stopped():
 
 
 def get_navidrome_data():
-    user_id = get_navidrome_user_id(NAVIDROME_DB_PATH)
+    user_id = get_navidrome_user_id(NAVIDROME_DB_PATH, preset_user_id=NAVIDROME_USER_ID)
     tracks = get_all_tracks(NAVIDROME_DB_PATH)
     if not tracks:
         print("⚠️  No tracks found in Navidrome database. Make sure your Navidrome library is scanned.\n")
