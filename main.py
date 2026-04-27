@@ -12,9 +12,9 @@ import time
 from datetime import datetime, timezone
 from src.config import (NAVIDROME_URL, NAVIDROME_DB_PATH, CACHE_DB_PATH, MISSING_SCROBBLES,
                         MISSING_LOVED, DUPLICATE_TRACKS, PLAYCOUNT_CONFLICT_RESOLUTION, SYNC_LOVED_TO_LASTFM,
-                        ENABLE_FUZZY_MATCHING, FUZZY_MATCHING_THRESHOLD, FUZZY_MATCHING_AUTO_THRESHOLD,
-                        ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION, AUTO_CONFIRM,
-                        validate_config)
+                        SYNC_PLAYCOUNT, ENABLE_FUZZY_MATCHING, FUZZY_MATCHING_THRESHOLD,
+                        FUZZY_MATCHING_AUTO_THRESHOLD, ALBUM_MATCHING_MODE, DUPLICATE_RESOLUTION,
+                        AUTO_CONFIRM, validate_config)
 from src.lastfm import fetch_all_lastfm_scrobbles, fetch_loved_tracks, love_track
 from src.utils import aggregate_scrobbles, group_missing_by_artist_album
 from src.cache import ScrobbleCache
@@ -381,7 +381,9 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                     'nav_track': dup['title']
                 })
 
-            if lastfm_count != nav_count or (loved and not nav_starred):
+            has_playcount_diff = SYNC_PLAYCOUNT and (lastfm_count != nav_count)
+            has_loved_diff = loved and not nav_starred
+            if has_playcount_diff or has_loved_diff:
                 differences.append({
                     'id': track_id,
                     'artist': dup['artist'],
@@ -495,7 +497,8 @@ def show_conflict_mode():
         "first": "automatically update first version only",
         "skip": "skip tracks with multiple versions",
     }
-    print(f"📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}")
+    print(f"� Play count sync: {'enabled' if SYNC_PLAYCOUNT else 'disabled (loved tracks only)'}")
+    print(f"�📋 Conflict resolution mode: {conflict_mode_desc.get(PLAYCOUNT_CONFLICT_RESOLUTION, PLAYCOUNT_CONFLICT_RESOLUTION)}")
     print(f"💽 Album matching mode: {album_mode_desc.get(ALBUM_MATCHING_MODE, ALBUM_MATCHING_MODE)}")
     print(f"📀 Duplicate resolution mode: {duplicate_mode_desc.get(DUPLICATE_RESOLUTION, DUPLICATE_RESOLUTION)}")
     
@@ -573,9 +576,14 @@ def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
         
         all_processed_track_ids.append(d['id'])  # Track this for later aggregation
 
+        # If play count sync is disabled, leave counts untouched
+        if not SYNC_PLAYCOUNT:
+            new_count = nav
+            conflict = False
+            changed = False
         # If this track came from an album distribution decision, use that count directly
         # without asking again (user already decided via album mismatch prompt)
-        if d.get('from_distribution', False):
+        elif d.get('from_distribution', False):
             new_count = lastfm
             conflict = nav != lastfm
             changed = new_count != nav

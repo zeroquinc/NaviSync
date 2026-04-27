@@ -24,6 +24,7 @@ Sync your Last.fm play counts and loved tracks including timestamps to Navidrome
       ENABLE_FUZZY_MATCHING=True
       FUZZY_MATCHING_THRESHOLD=85  # Minimum similarity score to consider a fuzzy candidate
       FUZZY_MATCHING_AUTO_THRESHOLD=95  # Automatically accept a fuzzy match at or above this score
+      SYNC_PLAYCOUNT=True
       PLAYCOUNT_CONFLICT_RESOLUTION=ask
       SYNC_LOVED_TO_LASTFM=False
       ALBUM_MATCHING_MODE=album_agnostic
@@ -76,6 +77,16 @@ FUZZY_MATCHING_AUTO_THRESHOLD=95  # Automatically accept a fuzzy match at or abo
 - `FUZZY_MATCHING_AUTO_THRESHOLD` enables automatic acceptance of the top fuzzy match when its score meets or exceeds this percentage
 
 When enabled, the script intelligently finds potential matches for track name variations. With `FUZZY_MATCHING_AUTO_THRESHOLD` set, high-confidence matches are accepted automatically, while lower-confidence matches still prompt for confirmation.
+
+### Play Count Sync
+
+```env
+SYNC_PLAYCOUNT=True  # Default: True
+```
+
+**Options:**
+- `True` - Sync play counts from Last.fm to Navidrome (default)
+- `False` - Only sync loved/starred track status; play counts are left untouched
 
 ### Conflict Resolution
 
