@@ -1,11 +1,18 @@
 import re
 from datetime import datetime, timezone
 
-from .config import FIRST_ARTIST_WHITELIST, SCROBBLED_FIRSTARTISTONLY
+from .config import FIRST_ARTIST_WHITELIST, SCROBBLED_FIRSTARTISTONLY, LASTFM_ARTIST_MAPPING
 
 def normalize(s):
     """Normalize a string for comparison (lowercase, trimmed)."""
     return s.strip().lower() if s else ""
+
+
+def apply_artist_mapping(artist):
+    """Remap a Last.fm artist name using LASTFM_ARTIST_MAPPING, if configured."""
+    if not artist or not LASTFM_ARTIST_MAPPING:
+        return artist
+    return LASTFM_ARTIST_MAPPING.get(artist.strip().lower(), artist)
 
 def first_artist(artist):
     """Extract the primary artist from a collaboration string."""
@@ -107,11 +114,12 @@ def aggregate_scrobbles(scrobbles, album_aware=False):
     """
     aggregated = {}
     for s in scrobbles:
-        key = make_key_lastfm(s['artist'], s['track'], s.get('album', ''), album_aware)
+        artist = apply_artist_mapping(s['artist'])
+        key = make_key_lastfm(artist, s['track'], s.get('album', ''), album_aware)
         aggregated.setdefault(key, {
             'timestamps': [],
             'loved': False,
-            'artist_orig': s['artist'],
+            'artist_orig': artist,
             'track_orig': s['track'],
             'album_orig': s.get('album', '')
         })

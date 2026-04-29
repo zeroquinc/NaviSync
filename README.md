@@ -64,6 +64,18 @@ SCROBBLED_FIRSTARTISTONLY=True
 FIRST_ARTIST_WHITELIST=["Simon & Garfunkel", "AC/DC"]  # Keep these exact
 ```
 
+### Artist Name Mapping
+
+Last.fm sometimes uses a different canonical spelling than MusicBrainz or Navidrome (e.g. `Breed77` instead of `Breed 77`). Use this mapping to remap Last.fm artist names before matching:
+
+```env
+LASTFM_ARTIST_MAPPING={"Breed77": "Breed 77", "Sweet": "The Sweet", "Welle:Erdball": "Welle: Erdball"}
+```
+
+- Keys are the Last.fm canonical names, values are your preferred names
+- Lookup is case-insensitive, so `Breed77` and `breed77` both match
+- The remapped name is used throughout the entire sync pipeline (play counts, loved tracks, missing track reports)
+
 ### Fuzzy Matching
 
 ```env
