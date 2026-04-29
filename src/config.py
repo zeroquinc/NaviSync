@@ -118,6 +118,19 @@ except json.JSONDecodeError:
     print("⚠️  Warning: Invalid JSON in FIRST_ARTIST_WHITELIST, using empty list")
     FIRST_ARTIST_WHITELIST = []
 
+# Artist name mapping: remap Last.fm canonical artist names to preferred alternatives
+# Keys are the Last.fm canonical names, values are the preferred names to use instead
+# Example: {"Breed77": "Breed 77", "Sweet": "The Sweet", "Welle:Erdball": "Welle: Erdball"}
+# Lookup is case-insensitive
+try:
+    _raw_artist_mapping = json.loads(os.getenv("LASTFM_ARTIST_MAPPING", "{}"))
+    if not isinstance(_raw_artist_mapping, dict):
+        raise ValueError("LASTFM_ARTIST_MAPPING must be a JSON object")
+    LASTFM_ARTIST_MAPPING = {k.strip().lower(): v.strip() for k, v in _raw_artist_mapping.items()}
+except (json.JSONDecodeError, ValueError) as e:
+    print(f"⚠️  Warning: Invalid LASTFM_ARTIST_MAPPING ({e}), using empty mapping")
+    LASTFM_ARTIST_MAPPING = {}
+
 # JSON output folder
 JSON_FOLDER = os.path.join(PROJECT_ROOT, "json")
 
