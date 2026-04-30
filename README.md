@@ -4,6 +4,12 @@ Sync your Last.fm play counts and loved tracks including timestamps to Navidrome
 
 ## ⚠️ Always make a backup of your Navidrome database first before using this! ⚠️
 
+Navidrome has an integrated backup function, that can be used. For example:
+
+```bash
+navidrome --configfile /path/to/navidrome/config.toml --datafolder /path/to/datafolder/navidrome backup create
+```
+
 ## Quick Start
 
 1. **Install dependencies:**
@@ -16,7 +22,7 @@ Sync your Last.fm play counts and loved tracks including timestamps to Navidrome
 2. **Configure:** Copy `env.example` to `.env` and fill in your details:
    ```env
       NAVIDROME_DB_PATH=Z:/navidrome/navidrome.db
-      NAVIDROME_URL=http://192.168.0.50:4533
+      NAVIDROME_URL=http://127.0.0.1:4533
 
       LASTFM_API_KEY=lastfmapikey
       LASTFM_USER=Username
