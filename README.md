@@ -31,6 +31,7 @@ navidrome --configfile /path/to/navidrome/config.toml --datafolder /path/to/data
 
       SCROBBLED_FIRSTARTISTONLY=True
       FIRST_ARTIST_WHITELIST=["Suzan & Freek", "Simon & Garfunkel", "AC/DC"]
+      LASTFM_ARTIST_MAPPING={"Breed77": "Breed 77", "Sweet": "The Sweet", "Welle:Erdball": "Welle: Erdball"}
       ENABLE_FUZZY_MATCHING=True
       FUZZY_MATCHING_THRESHOLD=85  # Minimum similarity score to consider a fuzzy candidate
       FUZZY_MATCHING_AUTO_THRESHOLD=95  # Automatically accept a fuzzy match at or above this score
@@ -38,6 +39,7 @@ navidrome --configfile /path/to/navidrome/config.toml --datafolder /path/to/data
       PLAYCOUNT_CONFLICT_RESOLUTION=ask
       SYNC_LOVED_TO_LASTFM=False
       ALBUM_MATCHING_MODE=album_agnostic
+      ALBUM_MATCHING_FALLBACK_TO_TRACK_TITLE=False
       DUPLICATE_RESOLUTION=ask
       AUTO_CONFIRM=False
    ```
