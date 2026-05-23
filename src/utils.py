@@ -1,7 +1,12 @@
 import re
 from datetime import datetime, timezone
 
-from .config import FIRST_ARTIST_WHITELIST, SCROBBLED_FIRSTARTISTONLY, LASTFM_ARTIST_MAPPING
+from .config import (
+    FIRST_ARTIST_WHITELIST,
+    SCROBBLED_FIRSTARTISTONLY,
+    LASTFM_ARTIST_MAPPING,
+    ALBUM_MATCHING_FALLBACK_TO_TRACK_TITLE,
+)
 
 def normalize(s):
     """Normalize a string for comparison (lowercase, trimmed)."""
@@ -115,13 +120,16 @@ def aggregate_scrobbles(scrobbles, album_aware=False):
     aggregated = {}
     for s in scrobbles:
         artist = apply_artist_mapping(s['artist'])
-        key = make_key_lastfm(artist, s['track'], s.get('album', ''), album_aware)
+        album = s.get('album', '') or ''
+        if album_aware and ALBUM_MATCHING_FALLBACK_TO_TRACK_TITLE and not album:
+            album = s['track']
+        key = make_key_lastfm(artist, s['track'], album, album_aware)
         aggregated.setdefault(key, {
             'timestamps': [],
             'loved': False,
             'artist_orig': artist,
             'track_orig': s['track'],
-            'album_orig': s.get('album', '')
+            'album_orig': album
         })
         aggregated[key]['timestamps'].append(s['timestamp'])
         if s['loved']:

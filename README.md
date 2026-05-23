@@ -127,6 +127,7 @@ PLAYCOUNT_CONFLICT_RESOLUTION=ask  # Options: ask, navidrome, lastfm, higher, in
 
 ```env
 ALBUM_MATCHING_MODE=album_agnostic  # Options: album_agnostic, album_aware, prompt
+ALBUM_MATCHING_FALLBACK_TO_TRACK_TITLE=False  # Default: False
 ```
 
 **Album Handling Options:**
@@ -137,6 +138,9 @@ ALBUM_MATCHING_MODE=album_agnostic  # Options: album_agnostic, album_aware, prom
   - Example: "Track A" on "Album X" gets 60 plays, same track on "Compilation Y" gets 40 plays
   - Ideal for mixed albums, compilations, and avoiding duplicate play counts in smart playlists
 - `prompt` - Like album_agnostic, but always asks which album version(s) to update (no auto-selection)
+
+**Fallback for missing Last.fm album tags:**
+- `ALBUM_MATCHING_FALLBACK_TO_TRACK_TITLE=True` - When enabled and `ALBUM_MATCHING_MODE=album_aware`, Last.fm scrobbles with missing album tags will be treated as if their album name is the track title. This helps match singles and older tracks that lack album metadata.
 
 ### Duplicate Resolution
 
