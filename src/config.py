@@ -66,6 +66,10 @@ else:
 # - "prompt": Like album_agnostic, but always prompts user to choose which album(s) to update
 ALBUM_MATCHING_MODE = os.getenv("ALBUM_MATCHING_MODE", "album_agnostic").lower()
 
+# If True and a Last.fm scrobble has no album tag, treat the track title as the album name
+# during album-aware matching. Useful for singles or older tracks where Last.fm omitted album info.
+ALBUM_MATCHING_FALLBACK_TO_TRACK_TITLE = os.getenv("ALBUM_MATCHING_FALLBACK_TO_TRACK_TITLE", "False") == "True"
+
 # Validate the album matching mode setting
 VALID_ALBUM_MODES = ["album_agnostic", "album_aware", "prompt"]
 if ALBUM_MATCHING_MODE not in VALID_ALBUM_MODES:
