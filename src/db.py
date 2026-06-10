@@ -303,6 +303,79 @@ def update_annotation(conn, track_id, new_count, new_last_played, loved, user_id
         """, (user_id, track_id, new_count, play_date_str, starred_val, starred_at_str))
     conn.commit()
 
+
+def insert_scrobbles(conn, media_file_id, user_id, timestamps):
+    """Insert scrobble rows into Navidrome's `scrobbles` table.
+
+    This safely checks for the table's existence and avoids inserting
+    duplicate (media_file_id, user_id, submission_time) rows.
+
+    Args:
+        conn: sqlite3 connection to Navidrome DB
+        media_file_id: id of the media_file row in Navidrome
+        user_id: Navidrome user id
+        timestamps: iterable of integer Unix timestamps (seconds)
+
+    Returns:
+        int: number of rows inserted
+    """
+    if not timestamps:
+        return 0
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scrobbles'")
+        if cursor.fetchone() is None:
+            print("⚠️  Navidrome 'scrobbles' table not found; skipping scrobble inserts.")
+            return 0
+    except sqlite3.Error:
+        # If inspection fails, try to continue and let inserts fail gracefully
+        pass
+
+    inserted = 0
+    for ts in timestamps:
+        try:
+            # Normalize timestamp to int seconds
+            try:
+                ts_int = int(ts)
+            except Exception:
+                continue
+
+            cursor.execute(
+                "SELECT 1 FROM scrobbles WHERE media_file_id=? AND user_id=? AND submission_time=?",
+                (media_file_id, user_id, ts_int)
+            )
+            if cursor.fetchone():
+                continue
+
+            cursor.execute(
+                "INSERT INTO scrobbles (media_file_id, user_id, submission_time) VALUES (?, ?, ?)",
+                (media_file_id, user_id, ts_int)
+            )
+            inserted += 1
+        except sqlite3.Error:
+            # Ignore individual failures to avoid halting the whole sync
+            continue
+
+    try:
+        conn.commit()
+    except sqlite3.Error:
+        pass
+    return inserted
+
+
+def get_existing_scrobble_times(conn, media_file_id, user_id):
+    """Return a set of submission_time integers already present for this media_file and user."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT submission_time FROM scrobbles WHERE media_file_id = ? AND user_id = ?",
+            (media_file_id, user_id)
+        )
+        return {int(row[0]) for row in cursor.fetchall()}
+    except sqlite3.Error:
+        return set()
+
 def update_artist_play_counts(conn, user_id, updated_track_ids=None):
     """
     Recalculate and update artist play counts by aggregating track play counts.

@@ -144,6 +144,19 @@ class ScrobbleCache:
             # so future migrations can build on this baseline.
             current_version = 1
 
+        # Migration 2: add backfill markers table for caching backfill state
+        if current_version < 2:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS backfill_markers (
+                    lastfm_artist TEXT NOT NULL,
+                    lastfm_track TEXT NOT NULL,
+                    last_scrobble_ts INTEGER,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (lastfm_artist, lastfm_track)
+                )
+            """)
+            current_version = 2
+
         cursor.execute(
             "INSERT OR REPLACE INTO sync_metadata (key, value) VALUES ('schema_version', ?)",
             (str(current_version),)
@@ -223,6 +236,27 @@ class ScrobbleCache:
             cursor = conn.cursor()
             cursor.execute("UPDATE scrobbles SET synced = 1 WHERE artist = ? AND track = ?", (artist, track))
             conn.commit()
+
+    def mark_scrobbles_synced_timestamps(self, artist, track, timestamps):
+        """Mark specific scrobbles (by timestamp) as synced for an artist/track.
+
+        Args:
+            artist: Last.fm artist name
+            track: Last.fm track name
+            timestamps: iterable of integer Unix timestamps
+        Returns:
+            int: number of rows updated
+        """
+        if not timestamps:
+            return 0
+
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' for _ in timestamps)
+            params = [artist, track] + [int(t) for t in timestamps]
+            cursor.execute(f"UPDATE scrobbles SET synced = 1 WHERE artist = ? AND track = ? AND timestamp IN ({placeholders})", params)
+            conn.commit()
+            return cursor.rowcount
 
     def get_scrobble_count(self, artist, track):
         """Get the total number of scrobbles for a given artist/track."""
@@ -337,6 +371,44 @@ class ScrobbleCache:
             'oldest_scrobble': datetime.fromtimestamp(min_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if min_ts else None,
             'newest_scrobble': datetime.fromtimestamp(max_ts, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if max_ts else None,
         }
+
+    # ------------------------------------------------------------------
+    # Backfill marker helpers
+    # ------------------------------------------------------------------
+
+    def get_backfill_marker(self, artist, track):
+        """Return the last scrobble timestamp that was backfilled for a Last.fm track.
+
+        Returns None if no marker exists.
+        """
+        artist_key = self._normalize_lookup_key(artist)
+        track_key = self._normalize_lookup_key(track)
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT last_scrobble_ts FROM backfill_markers WHERE LOWER(TRIM(lastfm_artist)) = ? AND LOWER(TRIM(lastfm_track)) = ?",
+                (artist_key, track_key)
+            )
+            row = cursor.fetchone()
+        return row[0] if row and row[0] is not None else None
+
+    def set_backfill_marker(self, artist, track, last_scrobble_ts):
+        """Set or update the backfill marker for a Last.fm track.
+
+        Stores the timestamp of the newest scrobble that has been backfilled.
+        """
+        ts = int(last_scrobble_ts) if last_scrobble_ts is not None else None
+        updated_at = int(datetime.now(timezone.utc).timestamp())
+        artist_key = self._normalize_lookup_key(artist)
+        track_key = self._normalize_lookup_key(track)
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO backfill_markers (lastfm_artist, lastfm_track, last_scrobble_ts, updated_at) VALUES (?, ?, ?, ?)",
+                (artist_key, track_key, ts, updated_at)
+            )
+            conn.commit()
+
 
     def reset_sync_status(self):
         """Reset all scrobbles to unsynced status. Useful for a full re-sync."""
