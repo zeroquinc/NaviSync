@@ -125,13 +125,15 @@ def aggregate_scrobbles(scrobbles, album_aware=False):
             album = s['track']
         key = make_key_lastfm(artist, s['track'], album, album_aware)
         aggregated.setdefault(key, {
+            # Store per-scrobble records so we can preserve Last.fm album tags
+            # alongside timestamps: list of dicts {'timestamp': int, 'album': str}
             'timestamps': [],
             'loved': False,
             'artist_orig': artist,
             'track_orig': s['track'],
             'album_orig': album
         })
-        aggregated[key]['timestamps'].append(s['timestamp'])
+        aggregated[key]['timestamps'].append({'timestamp': int(s['timestamp']), 'album': album})
         if s['loved']:
             aggregated[key]['loved'] = True
     return aggregated
@@ -194,10 +196,12 @@ def group_missing_by_artist_album(aggregated_scrobbles, tracks, cache, album_awa
         track = info['track_orig']
         album = info['album_orig'] or ""
         scrobble_count = len(info['timestamps'])
-        last_played_ts = max(info['timestamps'])
-        last_played_str = datetime.fromtimestamp(
-            last_played_ts, timezone.utc
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        # timestamps are stored as dicts — get the max timestamp value
+        last_played_ts = max((t['timestamp'] for t in info['timestamps']), default=None)
+        if last_played_ts is not None:
+            last_played_str = datetime.fromtimestamp(last_played_ts, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            last_played_str = None
 
         track_entry = {
             "track": track,

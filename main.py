@@ -21,7 +21,7 @@ from src.cache import ScrobbleCache
 from src.db import (connect_db, get_navidrome_user_id, get_all_tracks,
                     get_annotation_playcount_starred, update_annotation,
                     check_navidrome_active, update_artist_play_counts,
-                    update_album_play_counts)
+                    update_album_play_counts, insert_scrobbles, get_existing_scrobble_times)
 from src.matcher import get_lastfm_match_for_navidrome_track
 from src.duplicates import (
     recompute_manual_distribution,
@@ -115,7 +115,7 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
     total_tracks = len(tracks)
     tracks_with_scrobbles = 0
     
-    # Track potential duplicates: key = (lastfm_artist, lastfm_track), value = list of nav tracks
+    # Track potential duplicates: key = (lastfm_artist, lastfm_track [, album]), value = list of nav tracks
     potential_duplicates = {}
     # Always keep an album-agnostic map for loved handling in album-aware mode
     potential_duplicates_agnostic = {}
@@ -349,6 +349,76 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
         else:
             process_track_ids = selected_track_ids
 
+        # Assign specific timestamps to each Navidrome track when using album-divide
+        assigned_timestamps = {}
+        # Extract raw timestamp ints and group by Last.fm album
+        raw_ts = scrobble_info.get('timestamps', []) or []
+        ts_by_album = {}
+        for rec in raw_ts:
+            # rec is {'timestamp': int, 'album': str}
+            album_name = (rec.get('album') or '').strip()
+            ts_by_album.setdefault(album_name, []).append(int(rec['timestamp']))
+
+        # Helper: flattened list of all timestamps (ints), newest first
+        all_ts_sorted = sorted((t for grp in ts_by_album.values() for t in grp), reverse=True)
+
+        if album_divide_result is not None:
+            # Prefer assigning timestamps that match the Last.fm album when possible
+            remaining = {}
+            for album, lst in ts_by_album.items():
+                # sort newest-first per album
+                remaining[album] = sorted(lst, reverse=True)
+
+            # For each duplicate, try to match its album to Last.fm album group
+            for dup in duplicates:
+                assigned = []
+                dup_album_norm = (dup.get('album') or '').strip().lower()
+                # Find matching album key (case-insensitive)
+                matched_key = None
+                for a in remaining.keys():
+                    if a.strip().lower() == dup_album_norm and remaining[a]:
+                        matched_key = a
+                        break
+
+                if matched_key:
+                    cnt = int(album_divide_result.get(dup['id'], 0))
+                    assigned = remaining[matched_key][:cnt]
+                    remaining[matched_key] = remaining[matched_key][cnt:]
+                else:
+                    # No direct album match — take from any remaining timestamps
+                    cnt = int(album_divide_result.get(dup['id'], 0))
+                    take = []
+                    # Pull from album groups in arbitrary order until we have cnt
+                    for a in list(remaining.keys()):
+                        if not remaining[a]:
+                            continue
+                        need = cnt - len(take)
+                        if need <= 0:
+                            break
+                        take.extend(remaining[a][:need])
+                        remaining[a] = remaining[a][need:]
+                    # If still short, pull from all_ts_sorted (shouldn't usually happen)
+                    if len(take) < cnt:
+                        extra_needed = cnt - len(take)
+                        extra = []
+                        for a in list(remaining.keys()):
+                            if remaining[a]:
+                                extra.append(remaining[a].pop(0))
+                                if len(extra) >= extra_needed:
+                                    break
+                        take.extend(extra)
+                    assigned = take
+
+                assigned_timestamps[dup['id']] = assigned
+        else:
+            # If only a single target is selected, assign all timestamps to it;
+            # avoid duplicating timestamps across multiple Navidrome versions.
+            for dup in duplicates:
+                if len(process_track_ids) == 1 and dup['id'] == process_track_ids[0]:
+                    assigned_timestamps[dup['id']] = all_ts_sorted
+                else:
+                    assigned_timestamps[dup['id']] = []
+
         # Now process the intended track(s)
         for dup in duplicates:
             if dup['id'] not in process_track_ids:
@@ -357,15 +427,19 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
             track_id = dup['id']
             nav_count, nav_starred, nav_played_ts = get_annotation_playcount_starred(conn, track_id, user_id)
             
-            track_scrobbles = scrobble_info['timestamps']
-            
+            # track_scrobbles from aggregated data are dicts; count is length
+            track_scrobbles = scrobble_info.get('timestamps', [])
+
             # If album-aware divide or manual distribution was used, use the assigned count
             if album_divide_result is not None:
                 lastfm_count = album_divide_result.get(track_id, 0)
             else:
                 lastfm_count = len(track_scrobbles)
-            
-            last_played = max(track_scrobbles) if track_scrobbles else None
+
+            # Determine last_played timestamp (max of timestamps in this Last.fm grouping)
+            last_played = None
+            if track_scrobbles:
+                last_played = max((t['timestamp'] for t in track_scrobbles))
             loved = loved_lastfm
             if love_allowed_ids is not None:
                 loved = loved and (dup['id'] in love_allowed_ids)
@@ -398,14 +472,15 @@ def compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache):
                     'loved_at': loved_at,
                     'lastfm_artist': scrobble_info['artist_orig'],
                     'lastfm_track': scrobble_info['track_orig'],
-                    'from_distribution': album_divide_result is not None
+                    'from_distribution': album_divide_result is not None,
+                    'timestamps': assigned_timestamps.get(track_id, [])
                 })
 
     print(f"\n✅ Processing complete!")
     if navidrome_stars_to_sync:
         print(f"   Navidrome stars to sync to Last.fm: {len(navidrome_stars_to_sync)}")
     print()
-    return differences, navidrome_stars_to_sync
+    return differences, navidrome_stars_to_sync, potential_duplicates, potential_duplicates_agnostic
 
 
 def write_duplicate_log(potential_duplicates, album_aware=False):
@@ -465,6 +540,138 @@ def write_duplicate_log(potential_duplicates, album_aware=False):
         print(f"📀 Duplicate tracks log saved to {DUPLICATE_TRACKS} ({len(duplicate_log)} groups)")
     
     return len(duplicate_log)
+
+
+def backfill_scrobbles(conn, cache, aggregated_scrobbles, tracks, user_id, potential_duplicates, potential_duplicates_agnostic):
+    """Backfill scrobbles into Navidrome for tracks whose playcount already matches Last.fm.
+
+    This will insert missing scrobble rows for Navidrome media_file IDs when the
+    Navidrome annotation.play_count equals the Last.fm count — ensuring history is
+    filled without changing play counts.
+    """
+    print("\n🔁 Backfilling scrobbles for already-matching playcounts...")
+    inserted_total = 0
+
+    # make_key_navidrome not needed here; use aggregated keys directly
+
+    for key, scrobble_info in aggregated_scrobbles.items():
+        # Determine duplicate key in same form as potential_duplicates
+        if ALBUM_MATCHING_MODE == "album_aware":
+            duplicate_key = key
+        else:
+            # key may be 3-tuple; normalize to 2-tuple
+            duplicate_key = (key[0], key[1]) if isinstance(key, tuple) and len(key) >= 2 else key
+
+        duplicates = potential_duplicates.get(duplicate_key)
+        if not duplicates:
+            # try agnostic fallback
+            agnostic_key = (scrobble_info['artist_orig'], scrobble_info['track_orig'])
+            duplicates = potential_duplicates_agnostic.get(agnostic_key, [])
+        if not duplicates:
+            continue
+
+        # Build per-duplicate timestamp assignment similar to compute_differences
+        # Prepare Last.fm keys and group timestamps by album
+        lastfm_artist = scrobble_info['artist_orig']
+        lastfm_track = scrobble_info['track_orig']
+
+        raw_ts = scrobble_info.get('timestamps', []) or []
+        ts_by_album = {}
+        for rec in raw_ts:
+            album_name = (rec.get('album') or '').strip()
+            ts_by_album.setdefault(album_name, []).append(int(rec['timestamp']))
+        all_ts_sorted = sorted((t for grp in ts_by_album.values() for t in grp), reverse=True)
+        newest_ts = all_ts_sorted[0] if all_ts_sorted else 0
+
+        # Consult cache to see if we've already backfilled this Last.fm track up to newest_ts
+        try:
+            marker = cache.get_backfill_marker(lastfm_artist, lastfm_track)
+        except Exception:
+            marker = None
+        if marker and marker >= newest_ts:
+            # Already backfilled up to this timestamp; skip
+            continue
+
+        album_divide_result = None
+        if len(duplicates) > 1 and ALBUM_MATCHING_MODE == 'album_aware':
+            album_counts = cache.get_album_scrobble_counts(scrobble_info['artist_orig'], scrobble_info['track_orig'])
+            album_divide_result = calculate_album_divide(duplicates, scrobble_info, album_counts=album_counts if album_counts else None)
+
+        # Assign timestamps per duplicate
+        assigned_timestamps = {}
+        if album_divide_result is not None:
+            remaining = {a: sorted(lst, reverse=True) for a, lst in ts_by_album.items()}
+            for dup in duplicates:
+                assigned = []
+                dup_album_norm = (dup.get('album') or '').strip().lower()
+                matched_key = None
+                for a in remaining.keys():
+                    if a.strip().lower() == dup_album_norm and remaining[a]:
+                        matched_key = a
+                        break
+                cnt = int(album_divide_result.get(dup['id'], 0))
+                if matched_key:
+                    assigned = remaining[matched_key][:cnt]
+                    remaining[matched_key] = remaining[matched_key][cnt:]
+                else:
+                    take = []
+                    for a in list(remaining.keys()):
+                        if not remaining[a]:
+                            continue
+                        need = cnt - len(take)
+                        if need <= 0:
+                            break
+                        take.extend(remaining[a][:need])
+                        remaining[a] = remaining[a][need:]
+                    if len(take) < cnt:
+                        extra_needed = cnt - len(take)
+                        extra = []
+                        for a in list(remaining.keys()):
+                            if remaining[a]:
+                                extra.append(remaining[a].pop(0))
+                                if len(extra) >= extra_needed:
+                                    break
+                        take.extend(extra)
+                    assigned = take
+                assigned_timestamps[dup['id']] = assigned
+        else:
+            for dup in duplicates:
+                if len(duplicates) == 1:
+                    assigned_timestamps[dup['id']] = all_ts_sorted
+                else:
+                    assigned_timestamps[dup['id']] = []
+
+        # For each duplicate, if nav playcount equals target, insert missing timestamps
+        for dup in duplicates:
+            tid = dup['id']
+            target_count = len(assigned_timestamps.get(tid, [])) if album_divide_result is not None else len(all_ts_sorted) if len(duplicates) == 1 else 0
+            nav_count, nav_starred, nav_played_ts = get_annotation_playcount_starred(conn, tid, user_id)
+            if nav_count != target_count or target_count == 0:
+                continue
+
+            # find missing timestamps
+            existing = get_existing_scrobble_times(conn, tid, user_id)
+            missing_ts = [t for t in assigned_timestamps.get(tid, []) if int(t) not in existing]
+            if not missing_ts:
+                # Nothing to insert; update marker so we skip this group next time
+                try:
+                    cache.set_backfill_marker(lastfm_artist, lastfm_track, newest_ts)
+                except Exception:
+                    pass
+                continue
+
+            inserted = insert_scrobbles(conn, tid, user_id, missing_ts)
+            if inserted:
+                inserted_total += inserted
+                cache.mark_scrobbles_synced_timestamps(scrobble_info['artist_orig'], scrobble_info['track_orig'], missing_ts)
+                print(f"➕ Backfilled {inserted} scrobble{'s' if inserted != 1 else ''} for {dup['artist']} - {dup['title']}")
+                # Update backfill marker to newest timestamp for this Last.fm track
+                try:
+                    cache.set_backfill_marker(lastfm_artist, lastfm_track, newest_ts)
+                except Exception:
+                    pass
+
+    print(f"✅ Backfill complete: {inserted_total} scrobbles added")
 
 
 def write_missing_reports(aggregated_scrobbles, tracks, cache, album_aware=False):
@@ -607,10 +814,40 @@ def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
 
         update_annotation(conn, d['id'], new_count, d['last_played'], d['loved'], user_id, loved_at=d.get('loved_at'))
 
-        # Mark this track as synced in cache using original Last.fm names
+        # Only insert scrobbles and mark cache when we actually updated playcount
         lastfm_artist = d.get('lastfm_artist', d['artist'])
         lastfm_track = d.get('lastfm_track', d['title'])
-        cache.mark_scrobbles_synced(lastfm_artist, lastfm_track)
+
+        if SYNC_PLAYCOUNT and (new_count != d['navidrome']):
+            try:
+                timestamps = d.get('timestamps', []) or []
+                # Only attempt to insert timestamps that are not already present in Navidrome
+                try:
+                    existing = get_existing_scrobble_times(conn, d['id'], user_id)
+                    missing_ts = [int(t) for t in timestamps if int(t) not in existing]
+                except Exception:
+                    missing_ts = [int(t) for t in timestamps]
+
+                inserted = insert_scrobbles(conn, d['id'], user_id, missing_ts)
+                if inserted:
+                    print(f"➕ Added {inserted} scrobble row{'s' if inserted != 1 else ''} to Navidrome for {d['artist']} - {d['title']}")
+                    # Mark only the timestamps we wrote as synced in the cache
+                    try:
+                        if timestamps:
+                            # Mark only those cached timestamps that we wrote (or attempted)
+                            marked = cache.mark_scrobbles_synced_timestamps(lastfm_artist, lastfm_track, missing_ts if missing_ts else timestamps)
+                            if marked:
+                                print(f"   ✅ Marked {marked} cached scrobble{'s' if marked != 1 else ''} as synced")
+                    except Exception:
+                        pass
+                else:
+                    # No scrobbles inserted (table missing or duplicates) — mark all as synced
+                    cache.mark_scrobbles_synced(lastfm_artist, lastfm_track)
+            except Exception:
+                cache.mark_scrobbles_synced(lastfm_artist, lastfm_track)
+        else:
+            # Playcount was not changed — do not insert scrobbles or mark cache
+            pass
 
         # Log concise summary
         if new_count != nav:
@@ -756,7 +993,7 @@ def main():
         return
 
     try:
-        differences, navidrome_stars_to_sync = compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache)
+        differences, navidrome_stars_to_sync, potential_duplicates, potential_duplicates_agnostic = compute_differences(conn, tracks, aggregated_scrobbles, user_id, cache)
         write_missing_reports(aggregated_scrobbles, tracks, cache, (ALBUM_MATCHING_MODE == "album_aware"))
         
         # Sync Navidrome stars TO Last.fm if enabled
@@ -767,6 +1004,8 @@ def main():
             apply_updates(conn, cache, differences, user_id)
         else:
             print("\n✅ All tracks are already in sync!")
+            # Attempt to backfill scrobbles even when playcounts match
+            backfill_scrobbles(conn, cache, aggregated_scrobbles, tracks, user_id, potential_duplicates, potential_duplicates_agnostic)
     finally:
         close_db(conn)
 
