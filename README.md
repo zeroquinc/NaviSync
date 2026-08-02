@@ -6,6 +6,8 @@ Sync your Last.fm play counts and loved tracks including timestamps to Navidrome
 
 Navidrome has an integrated backup function, that can be used. For example:
 
+If you are upgrading to a Navidrome release that changes internal IDs, make sure to back up your database first and then clear the local cache folders after the upgrade. NaviSync now reads IDs as opaque values, so it should continue to work with both numeric and newer string-based IDs.
+
 ```bash
 navidrome --configfile /path/to/navidrome/config.toml --datafolder /path/to/datafolder/navidrome backup create
 ```

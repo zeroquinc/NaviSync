@@ -153,6 +153,32 @@ def get_navidrome_user_id(db_path, preset_user_id=None):
             print("⚠️  Invalid selection, using first user.")
             return users[0][0]
 
+def normalize_navidrome_id(raw_id):
+    """Normalize a Navidrome ID into a JSON-safe value.
+
+    Older Navidrome versions use numeric IDs, while newer releases may expose
+    string-based IDs. We preserve numeric IDs as ints for backwards compatibility
+    and keep non-numeric IDs as strings so downstream code can treat them as
+    opaque values.
+    """
+    if raw_id is None:
+        return None
+
+    if isinstance(raw_id, (bytes, bytearray)):
+        try:
+            raw_id = raw_id.decode('utf-8')
+        except Exception:
+            raw_id = raw_id.decode('latin-1', 'replace')
+
+    if isinstance(raw_id, str):
+        try:
+            return int(raw_id) if raw_id.isdigit() else raw_id
+        except Exception:
+            return raw_id
+
+    return raw_id
+
+
 def get_all_tracks(db_path):
     """Get all tracks from Navidrome database.
 
@@ -192,20 +218,7 @@ def get_all_tracks(db_path):
 
         tracks = []
         for row in cursor.fetchall():
-            raw_id = row[0]
-            # Normalize id so it's JSON-serializable (prefer int when possible)
-            if isinstance(raw_id, (bytes, bytearray)):
-                try:
-                    id_decoded = raw_id.decode('utf-8', 'replace')
-                except Exception:
-                    id_decoded = raw_id.decode('latin-1', 'replace')
-                # If it looks numeric, convert to int; otherwise keep as string
-                try:
-                    track_id = int(id_decoded) if id_decoded.isdigit() else id_decoded
-                except Exception:
-                    track_id = id_decoded
-            else:
-                track_id = raw_id
+            track_id = normalize_navidrome_id(row[0])
 
             title = _decode_field(row[1], 'title', track_id)
             artist = _decode_field(row[2], 'artist', track_id)
