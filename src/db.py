@@ -110,7 +110,7 @@ def get_navidrome_user_id(db_path, preset_user_id=None):
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT id, user_name, email FROM user")
-        users = [(row[0], row[1] or "", row[2] or "") for row in cursor.fetchall()]
+        users = [(normalize_navidrome_id(row[0]), row[1] or "", row[2] or "") for row in cursor.fetchall()]
     except sqlite3.Error as e:
         raise RuntimeError(f"Error reading Navidrome database: {e}")
     finally:
@@ -121,7 +121,8 @@ def get_navidrome_user_id(db_path, preset_user_id=None):
 
     # If a preset user ID is configured, validate and use it directly
     if preset_user_id:
-        matched = [u for u in users if u[0] == preset_user_id]
+        normalized_preset = normalize_navidrome_id(preset_user_id)
+        matched = [u for u in users if u[0] == normalized_preset]
         if matched:
             uid, name, email = matched[0]
             label = f"{name} ({email})" if email else name or uid
@@ -152,6 +153,29 @@ def get_navidrome_user_id(db_path, preset_user_id=None):
         except (ValueError, IndexError):
             print("⚠️  Invalid selection, using first user.")
             return users[0][0]
+
+def normalize_navidrome_id(raw_id):
+    """Normalize a Navidrome ID into a stable, JSON-safe string value.
+
+    Navidrome historically used numeric IDs in some installs, while newer
+    releases expose string-based IDs. We normalize everything to a string so
+    downstream code treats IDs as opaque values and avoids mismatches between
+    old numeric IDs and newer canonical IDs.
+    """
+    if raw_id is None:
+        return None
+
+    if isinstance(raw_id, (bytes, bytearray)):
+        try:
+            raw_id = raw_id.decode('utf-8')
+        except Exception:
+            raw_id = raw_id.decode('latin-1', 'replace')
+
+    if isinstance(raw_id, str):
+        return raw_id
+
+    return str(raw_id)
+
 
 def get_all_tracks(db_path):
     """Get all tracks from Navidrome database.
@@ -192,20 +216,7 @@ def get_all_tracks(db_path):
 
         tracks = []
         for row in cursor.fetchall():
-            raw_id = row[0]
-            # Normalize id so it's JSON-serializable (prefer int when possible)
-            if isinstance(raw_id, (bytes, bytearray)):
-                try:
-                    id_decoded = raw_id.decode('utf-8', 'replace')
-                except Exception:
-                    id_decoded = raw_id.decode('latin-1', 'replace')
-                # If it looks numeric, convert to int; otherwise keep as string
-                try:
-                    track_id = int(id_decoded) if id_decoded.isdigit() else id_decoded
-                except Exception:
-                    track_id = id_decoded
-            else:
-                track_id = raw_id
+            track_id = normalize_navidrome_id(row[0])
 
             title = _decode_field(row[1], 'title', track_id)
             artist = _decode_field(row[2], 'artist', track_id)

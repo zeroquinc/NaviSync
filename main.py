@@ -90,6 +90,42 @@ def ensure_navidrome_stopped():
     print(f"✅ {reason}\n")
 
 
+def warn_if_navidrome_id_migration_likely():
+    """Warn users about Navidrome's ID migration when the DB looks post-migration."""
+    try:
+        conn = connect_db(NAVIDROME_DB_PATH)
+        if conn is None:
+            return
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='media_file'")
+            if cursor.fetchone() is None:
+                return
+
+            cursor.execute("SELECT id FROM media_file LIMIT 5")
+            sample_ids = [row[0] for row in cursor.fetchall() if row and row[0] is not None]
+        finally:
+            conn.close()
+
+        if not sample_ids:
+            return
+
+        looks_like_new_ids = False
+        for value in sample_ids:
+            if isinstance(value, str):
+                if len(value) == 22 and all(ch.isalnum() for ch in value):
+                    looks_like_new_ids = True
+                    break
+
+        if looks_like_new_ids:
+            print("⚠️  Navidrome appears to be using the new canonical ID format.")
+            print("   If you upgraded Navidrome recently, consider clearing the local cache folders")
+            print("   before the next run so stale cached matches do not persist.")
+            print("   A backup of navidrome.db is still strongly recommended before any upgrade.\n")
+    except Exception:
+        return
+
+
 def get_navidrome_data():
     user_id = get_navidrome_user_id(NAVIDROME_DB_PATH, preset_user_id=NAVIDROME_USER_ID)
     tracks = get_all_tracks(NAVIDROME_DB_PATH)
@@ -754,7 +790,7 @@ def prompt_yes_no(message: str, default: bool = False) -> bool:
     return resp in ("y", "yes")
 
 
-def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int):
+def apply_updates(conn, cache: ScrobbleCache, differences, user_id: int | str | None):
     print(f"\nTracks with possible updates: {len(differences)}\n")
     show_conflict_mode()
 
@@ -977,6 +1013,7 @@ def main():
         show_cache_stats(cache)
         all_scrobbles = fetch_and_update_cache(cache)
         ensure_navidrome_stopped()
+        warn_if_navidrome_id_migration_likely()
         user_id, tracks = get_navidrome_data()
         if not tracks:
             return
